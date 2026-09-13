@@ -58,4 +58,79 @@ export class AudioEngine {
       this.slipGain = null;
     }
   }
+
+  /**
+   * TTC-style door closing: 3 descending electronic chimes, then
+   * pneumatic hiss and a latch clunk. (Tribute — not a TTC recording.)
+   */
+  doorClose() {
+    this.ensure();
+    const ctx = this.ctx!;
+    const t0 = ctx.currentTime;
+    const notes = [1318.5, 1046.5, 783.99]; // E6 C6 G5
+    notes.forEach((freq, i) => {
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.type = 'sine';
+      o.frequency.value = freq;
+      const start = t0 + i * 0.22;
+      g.gain.setValueAtTime(0.0001, start);
+      g.gain.exponentialRampToValueAtTime(0.11, start + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, start + 0.18);
+      o.connect(g).connect(ctx.destination);
+      o.start(start);
+      o.stop(start + 0.2);
+    });
+    // pneumatic hiss
+    const hissStart = t0 + 0.72;
+    const dur = 0.85;
+    const buf = ctx.createBuffer(1, Math.floor(ctx.sampleRate * dur), ctx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < data.length; i++) data[i] = (Math.random() * 2 - 1) * 0.35;
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    const bp = ctx.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.frequency.value = 1800;
+    bp.Q.value = 0.7;
+    const hg = ctx.createGain();
+    hg.gain.setValueAtTime(0.0001, hissStart);
+    hg.gain.exponentialRampToValueAtTime(0.07, hissStart + 0.08);
+    hg.gain.exponentialRampToValueAtTime(0.0001, hissStart + dur);
+    src.connect(bp).connect(hg).connect(ctx.destination);
+    src.start(hissStart);
+    // latch clunk
+    const clunkAt = hissStart + 0.78;
+    const cl = ctx.createOscillator();
+    const cg = ctx.createGain();
+    cl.type = 'triangle';
+    cl.frequency.setValueAtTime(140, clunkAt);
+    cl.frequency.exponentialRampToValueAtTime(60, clunkAt + 0.08);
+    cg.gain.setValueAtTime(0.09, clunkAt);
+    cg.gain.exponentialRampToValueAtTime(0.0001, clunkAt + 0.1);
+    cl.connect(cg).connect(ctx.destination);
+    cl.start(clunkAt);
+    cl.stop(clunkAt + 0.12);
+  }
+
+  doorOpen() {
+    this.ensure();
+    const ctx = this.ctx!;
+    const t0 = ctx.currentTime;
+    const dur = 0.55;
+    const buf = ctx.createBuffer(1, Math.floor(ctx.sampleRate * dur), ctx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < data.length; i++) data[i] = (Math.random() * 2 - 1) * 0.3;
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    const bp = ctx.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.frequency.value = 1400;
+    bp.Q.value = 0.6;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.05, t0);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    src.connect(bp).connect(g).connect(ctx.destination);
+    src.start(t0);
+  }
 }

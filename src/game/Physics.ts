@@ -4,7 +4,23 @@ export type PhysicsConfig = {
   massKg: number;
   weather: Weather;
   electric: boolean; // Flexity vs diesel
+  axleFrac?: number; // adhesive weight / total mass
 };
+
+/** Flexity Freedom (ION): 48,200 kg empty — Transit Toronto / Metrolinx. */
+export const MASS_FLEXITY_TARE_KG = 48200;
+/** Typical load ~114 pax at 70 kg (seated + light standees). */
+export const MASS_PAX_TYPICAL_KG = 8000;
+export const MASS_FLEXITY_KG = MASS_FLEXITY_TARE_KG + MASS_PAX_TYPICAL_KG;
+/** WCR: RS-18 ~112 t + one coach ~36 t. */
+export const MASS_WCR_KG = 148000;
+/** CN/GO-ish short consist. */
+export const MASS_CN_KG = 160000;
+/** Bo'2Bo' = 4 powered of 6 axles. */
+export const AXLE_FRAC_FLEXITY = 4 / 6;
+/** Loco adhesive weight / consist (RS-18 on WCR). */
+export const AXLE_FRAC_WCR = 112000 / MASS_WCR_KG;
+export const AXLE_FRAC_CN = 120000 / MASS_CN_KG;
 
 /** Flexity Freedom ~80 km/h; Guelph Sub diesel ~95 km/h */
 export const VMAX_ELECTRIC_MS = 80 / 3.6;
@@ -20,7 +36,7 @@ export const SPEED_LIMITS_KMH = {
 export type RowClass = keyof typeof SPEED_LIMITS_KMH;
 
 export function adhesionMu(weather: Weather, sanding: boolean): number {
-  let mu = weather === 'dry' ? 0.30 : weather === 'rain' ? 0.18 : 0.10;
+  let mu = weather === 'dry' ? 0.30 : weather === 'rain' ? 0.15 : 0.10;
   if (sanding) mu = Math.min(0.35, mu + 0.08);
   return mu;
 }
@@ -64,10 +80,13 @@ export class TrainPhysics {
   vigilanceTimer = 45;
   deadmanOk = true;
 
+  axleFrac: number;
+
   constructor(cfg: PhysicsConfig) {
     this.massKg = cfg.massKg;
     this.weather = cfg.weather;
     this.electric = cfg.electric;
+    this.axleFrac = cfg.axleFrac ?? (cfg.electric ? AXLE_FRAC_FLEXITY : AXLE_FRAC_WCR);
   }
 
   setWeather(w: Weather) { this.weather = w; }
@@ -84,15 +103,15 @@ export class TrainPhysics {
   maxTE(speedMs: number) {
     if (this.electric) {
       if (!this.pantographUp || this.lineVoltage < 500) return 0;
-      // ~70 kN starting, falls with power limit ~450 kW at 750 V
-      const te0 = 70000;
-      const pMax = 450000 * (this.lineVoltage / 750);
+      // 4 × ~80 kW asynchronous motors, ~62 kN start (~1.1 m/s² at tare)
+      const te0 = 62000;
+      const pMax = 320000 * (this.lineVoltage / 750);
       if (speedMs < 1) return te0;
       return Math.min(te0, pMax / speedMs);
     }
-    // diesel/cab: ~40 kN, 300 kW
-    const te0 = 40000;
-    const pMax = 300000;
+    // RS-18 class: ~178 kN starting TE, ~1340 kW — adhesion usually binds first
+    const te0 = 178000;
+    const pMax = 1340000;
     if (speedMs < 1) return te0;
     return Math.min(te0, pMax / speedMs);
   }
@@ -100,7 +119,10 @@ export class TrainPhysics {
   davisResistance(speedMs: number) {
     // Davis: A + Bv + Cv^2  (N), tuned for ~50 t LRV
     const v = Math.abs(speedMs);
-    const A = 1200, B = 40, C = 6.5;
+    const t = this.massKg / 1000;
+    const A = 20 * t;           // ~20 N per tonne rolling
+    const B = 0.35 * t;
+    const C = this.electric ? 5.2 : 8.5;
     return A + B * v + C * v * v;
   }
 
@@ -121,12 +143,11 @@ export class TrainPhysics {
     const notchP = canPower ? this.powerNotch : 0;
     const demandTE = (notchP / 8) * this.maxTE(Math.abs(this.speed));
     // Powered-axle adhesion weight (not full consist mass)
-    const axleFrac = this.electric ? 0.55 : 0.50;
-    const axleLoad = this.massKg * 9.81 * axleFrac;
+    const axleLoad = this.massKg * 9.81 * this.axleFrac;
     const maxAdhesion = this.baseMu() * axleLoad;
 
     // Brakes: blended regen + friction, up to ~1.2 m/s² — also limited by adhesion
-    const demandBrake = (this.brakeNotch / 8) * this.massKg * 1.2;
+    const demandBrake = (this.brakeNotch / 8) * this.massKg * 1.15;
 
     const teSlip = demandTE > maxAdhesion && notchP > 0;
     const brakeSlip = demandBrake > maxAdhesion && this.brakeNotch > 0;

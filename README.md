@@ -1,6 +1,6 @@
-# ION LRT Simulator **v1.1**
+# ION LRT Simulator **v1.1a**
 
-**v1.1** — realism pass: OSM-derived right-of-way (reserved vs street), corridor roads, traffic signals with TSP, rail crossings.
+**v1.1a** — real Flexity / WCR masses and traction, TTC-style door-close chime. Builds on v1.1 ROW/roads/signals.
 
 Playable browser cab simulator of the Waterloo Region **ION LRT** (GrandLinq / Keolis / GRT tribute), plus the **CN Waterloo Spur / WCR to Elmira** and **Kitchener–Guelph** heavy-rail routes.
 
@@ -51,9 +51,11 @@ One-way ION platforms (baked into station lists):
 
 ## Physics notes
 
-- Mass ~50 t (LRV) / ~80 t (diesel consist)
+- Flexity Freedom **48.2 t empty** + ~8 t typical pax (56.2 t). Bo′2Bo′ (4 of 6 axles powered). Starting TE ~62 kN, ~320 kW at 750 V.
+- WCR diesel **148 t** (RS-18 + coach); CN short consist **160 t**. Starting TE ~178 kN, ~1340 kW (adhesion-limited).
 - Traction-effort vs speed; ION limited by **750 V DC** pantograph
-- Adhesion μ ≈ 0.30 dry / 0.18 rain / 0.10 snow; sanding +0.08
+- Doors: TTC-style 3-note chime + pneumatic close (Web Audio tribute, not a TTC recording)
+- Adhesion μ ≈ 0.30 dry / 0.15 rain / 0.10 snow; sanding +0.08
 - Wheelslip / wheel-slide when demanded TE **or brake** > μ × axle-load (same lamp; reduced effort)
 - Vehicle vMax: Flexity 80 km/h, diesel ~95 km/h
 - Davis resistance + **real DEM grade** + curve resistance

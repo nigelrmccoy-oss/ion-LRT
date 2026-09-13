@@ -54,12 +54,16 @@ async function main() {
     civilSpeedLimitKmh,
     isOverspeed,
     adhesionMu,
+    MASS_FLEXITY_KG,
+    MASS_WCR_KG,
+    AXLE_FRAC_FLEXITY,
+    AXLE_FRAC_WCR,
   } = mod;
 
   const electric = (weather = 'dry') =>
-    new TrainPhysics({ massKg: 50000, weather, electric: true });
+    new TrainPhysics({ massKg: MASS_FLEXITY_KG, weather, electric: true, axleFrac: AXLE_FRAC_FLEXITY });
   const diesel = (weather = 'dry') =>
-    new TrainPhysics({ massKg: 80000, weather, electric: false });
+    new TrainPhysics({ massKg: MASS_WCR_KG, weather, electric: false, axleFrac: AXLE_FRAC_WCR });
 
   // --- a. Dry notch 8 from rest reaches >50 km/h within 45s, never exceeds vMax ---
   {
@@ -265,7 +269,7 @@ async function main() {
     );
   }
 
-  assert('helper adhesionMu dry/rain/snow', adhesionMu('dry', false) === 0.3 && adhesionMu('rain', false) === 0.18 && adhesionMu('snow', false) === 0.1);
+  assert('helper adhesionMu dry/rain/snow', adhesionMu('dry', false) === 0.3 && adhesionMu('rain', false) === 0.15 && adhesionMu('snow', false) === 0.1);
 
   await cleanup();
 

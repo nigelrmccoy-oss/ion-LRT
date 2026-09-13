@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { Elevation } from './elevation';
 import { Track } from './Track';
-import { TrainPhysics, type Weather } from './Physics';
+import { TrainPhysics, type Weather, MASS_FLEXITY_KG, MASS_WCR_KG, MASS_CN_KG, AXLE_FRAC_FLEXITY, AXLE_FRAC_WCR, AXLE_FRAC_CN } from './Physics';
 import { WeatherFX } from './WeatherFX';
 import { Input } from './Input';
 import { AudioEngine } from './AudioEngine';
@@ -163,10 +163,12 @@ export class Game {
     this.scene.add(this.stations.group);
 
     const electric = route.vehicle === 'flexity';
+    const dieselWcr = opts.route === 'elmira';
     this.physics = new TrainPhysics({
-      massKg: electric ? 50000 : 80000,
+      massKg: electric ? MASS_FLEXITY_KG : (dieselWcr ? MASS_WCR_KG : MASS_CN_KG),
       weather: opts.weather,
       electric,
+      axleFrac: electric ? AXLE_FRAC_FLEXITY : (dieselWcr ? AXLE_FRAC_WCR : AXLE_FRAC_CN),
     });
     this.physics.reverser = 0;
     this.physics.pantographUp = electric;
@@ -253,8 +255,14 @@ export class Game {
     }
     if (this.edge('KeyT')) {
       if (Math.abs(this.physics.speed) < 0.3) {
-        this.physics.doorsOpen = !this.physics.doorsOpen;
-        if (this.physics.doorsOpen) this.physics.powerNotch = 0;
+        const opening = !this.physics.doorsOpen;
+        this.physics.doorsOpen = opening;
+        if (opening) {
+          this.physics.powerNotch = 0;
+          this.audio.doorOpen();
+        } else {
+          this.audio.doorClose();
+        }
       }
     }
     if (this.edge('KeyP') && this.physics.electric) {
