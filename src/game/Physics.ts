@@ -6,6 +6,39 @@ export type PhysicsConfig = {
   electric: boolean; // Flexity vs diesel
 };
 
+/** Flexity Freedom ~80 km/h; Guelph Sub diesel ~95 km/h */
+export const VMAX_ELECTRIC_MS = 80 / 3.6;
+export const VMAX_DIESEL_MS = 95 / 3.6;
+
+/** Civil speed-limit heuristics (km/h) — mirrors Track.speedLimitKmh */
+export const SPEED_LIMITS_KMH = {
+  station: 25,
+  street: 40,
+  reserved: 70,
+} as const;
+
+export function adhesionMu(weather: Weather, sanding: boolean): number {
+  let mu = weather === 'dry' ? 0.30 : weather === 'rain' ? 0.18 : 0.10;
+  if (sanding) mu = Math.min(0.35, mu + 0.08);
+  return mu;
+}
+
+/** Standalone speed-limit helper for tests / HUD logic. */
+export function civilSpeedLimitKmh(
+  nearStation: boolean,
+  curvature: number,
+  opts?: { ionStreetRunning?: boolean },
+): number {
+  if (nearStation) return SPEED_LIMITS_KMH.station;
+  if (Math.abs(curvature) > 0.004) return SPEED_LIMITS_KMH.street;
+  if (opts?.ionStreetRunning && Math.abs(curvature) > 0.0015) return SPEED_LIMITS_KMH.street;
+  return SPEED_LIMITS_KMH.reserved;
+}
+
+export function isOverspeed(speedKmh: number, limitKmh: number, margin = 2): boolean {
+  return speedKmh > limitKmh + margin;
+}
+
 /** Real-ish LRV / light diesel physics in SI units. */
 export class TrainPhysics {
   massKg: number;
@@ -31,10 +64,12 @@ export class TrainPhysics {
 
   setWeather(w: Weather) { this.weather = w; }
 
+  vMaxMs() {
+    return this.electric ? VMAX_ELECTRIC_MS : VMAX_DIESEL_MS;
+  }
+
   baseMu() {
-    let mu = this.weather === 'dry' ? 0.30 : this.weather === 'rain' ? 0.18 : 0.10;
-    if (this.sanding) mu = Math.min(0.35, mu + 0.08);
-    return mu;
+    return adhesionMu(this.weather, this.sanding);
   }
 
   /** Max traction effort N vs speed (simplified Flexity / diesel curve). */
@@ -73,18 +108,27 @@ export class TrainPhysics {
   }
 
   step(dt: number, grade: number, curvature: number) {
-    // Doors interlock
+    // Doors interlock / reverser / vigilance
     const canPower = !this.doorsOpen && this.reverser !== 0 && this.deadmanOk;
     const notchP = canPower ? this.powerNotch : 0;
     const demandTE = (notchP / 8) * this.maxTE(Math.abs(this.speed));
-    const axleLoad = this.massKg * 9.81; // treat as total adhesion weight
+    // Powered-axle adhesion weight (not full consist mass)
+    const axleFrac = this.electric ? 0.55 : 0.50;
+    const axleLoad = this.massKg * 9.81 * axleFrac;
     const maxAdhesion = this.baseMu() * axleLoad;
-    this.wheelslip = demandTE > maxAdhesion && notchP > 0;
-    let te = Math.min(demandTE, maxAdhesion);
-    if (this.wheelslip) te *= 0.35; // reduced accel while slipping
 
-    // Brakes: blended regen + friction, up to ~1.2 m/s²
-    const Fbrake = (this.brakeNotch / 8) * this.massKg * 1.2;
+    // Brakes: blended regen + friction, up to ~1.2 m/s² — also limited by adhesion
+    const demandBrake = (this.brakeNotch / 8) * this.massKg * 1.2;
+
+    const teSlip = demandTE > maxAdhesion && notchP > 0;
+    const brakeSlip = demandBrake > maxAdhesion && this.brakeNotch > 0;
+    this.wheelslip = teSlip || brakeSlip;
+
+    let te = Math.min(demandTE, maxAdhesion);
+    if (teSlip) te *= 0.35; // reduced accel while slipping
+
+    let Fbrake = Math.min(demandBrake, maxAdhesion);
+    if (brakeSlip) Fbrake *= 0.35; // reduced braking while sliding
 
     const resist = this.davisResistance(this.speed) + Math.abs(this.curveResistance(curvature));
     const Fgrade = this.gradeForce(grade);
@@ -95,6 +139,13 @@ export class TrainPhysics {
 
     const a = F / this.massKg;
     this.speed += a * dt;
+
+    // Vehicle max speed cap (after integrate)
+    const vmax = this.vMaxMs();
+    if (Math.abs(this.speed) > vmax) {
+      this.speed = Math.sign(this.speed) * vmax;
+    }
+
     // stop creep
     if (this.brakeNotch >= 7 && Math.abs(this.speed) < 0.15) this.speed = 0;
     if (this.reverser === 0 && Math.abs(this.speed) < 0.2) this.speed = 0;
@@ -107,7 +158,7 @@ export class TrainPhysics {
       this.brakeNotch = Math.max(this.brakeNotch, 8);
     }
 
-    return { te, a, resist, Fbrake };
+    return { te, a, resist, Fbrake, demandTE, demandBrake, maxAdhesion };
   }
 
   resetVigilance() {

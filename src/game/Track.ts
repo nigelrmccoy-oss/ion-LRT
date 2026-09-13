@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { lonLatToLocal } from './coords';
 import type { Elevation } from './elevation';
+import { SPEED_LIMITS_KMH } from './Physics';
 
 export type TrackPoint = {
   lon: number;
@@ -114,11 +115,13 @@ export class Track {
 
   /** Civil speed limit heuristic km/h */
   speedLimitKmh(s: number, nearStation: boolean) {
-    if (nearStation) return 25;
+    if (nearStation) return SPEED_LIMITS_KMH.station;
     const p = this.sample(s);
-    if (Math.abs(p.curvature) > 0.004) return 40; // street / tight curve
+    if (Math.abs(p.curvature) > 0.004) return SPEED_LIMITS_KMH.street; // street / tight curve
     // downtown / street-running proxy: low grade + mid route for ION
-    if (this.name.includes('ION') && s > 6000 && s < 13000 && Math.abs(p.curvature) > 0.0015) return 40;
-    return 70;
+    if (this.name.includes('ION') && s > 6000 && s < 13000 && Math.abs(p.curvature) > 0.0015) {
+      return SPEED_LIMITS_KMH.street;
+    }
+    return SPEED_LIMITS_KMH.reserved;
   }
 }

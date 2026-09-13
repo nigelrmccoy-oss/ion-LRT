@@ -1,4 +1,7 @@
-# ION LRT Simulator
+# ION LRT Simulator **v1.0a**
+
+**v1.0a** — weather visuals (rain/snow), adhesion on brakes, vehicle speed caps, automated stress tests.
+
 
 Playable browser cab simulator of the Waterloo Region **ION LRT** (GrandLinq / Keolis / GRT tribute), plus the **CN Waterloo Spur / WCR to Elmira** and **Kitchener–Guelph** heavy-rail routes.
 
@@ -50,7 +53,8 @@ One-way ION platforms (baked into station lists):
 - Mass ~50 t (LRV) / ~80 t (diesel consist)
 - Traction-effort vs speed; ION limited by **750 V DC** pantograph
 - Adhesion μ ≈ 0.30 dry / 0.18 rain / 0.10 snow; sanding +0.08
-- Wheelslip when demanded TE > μ × axle-load (lamp + audio; reduced accel)
+- Wheelslip / wheel-slide when demanded TE **or brake** > μ × axle-load (same lamp; reduced effort)
+- Vehicle vMax: Flexity 80 km/h, diesel ~95 km/h
 - Davis resistance + **real DEM grade** + curve resistance
 - Blended regen + friction brake model
 - Simple vigilance timer (hold power/brake to reset)
@@ -97,6 +101,14 @@ Re-bake scripts (optional): `scripts/bake-stations.mjs`, `scripts/bake-elevation
 
 - ION: 5-module Flexity-proportion LRV, silver/black/blue **tribute** livery (no official logos).
 - Elmira / Guelph: simple diesel + coach consists (not Flexity on freight rails).
+
+## Tests
+
+```bash
+npm test
+```
+
+Headless stress suite (`scripts/stress-test.mjs`) covers adhesion, vMax, interlocks, grades, and civil limits.
 
 ## Performance
 

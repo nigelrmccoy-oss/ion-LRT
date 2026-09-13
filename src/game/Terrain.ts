@@ -33,6 +33,23 @@ export class TerrainSystem {
     this.elev = elev;
   }
 
+  /** Cheap wet-ground look: lower roughness / slight metalness when raining. */
+  setWet(wet: boolean) {
+    const r = wet ? 0.35 : 1;
+    const m = wet ? 0.25 : 0;
+    for (const mat of Object.values(this.landMats)) {
+      mat.roughness = r;
+      mat.metalness = m;
+      mat.needsUpdate = true;
+    }
+    this.ballastMat.roughness = wet ? 0.45 : 1;
+    this.ballastMat.metalness = wet ? 0.15 : 0;
+    this.ballastMat.needsUpdate = true;
+    this.railMat.roughness = wet ? 0.25 : 0.4;
+    this.railMat.needsUpdate = true;
+  }
+
+
   async loadScenery() {
     try {
       this.scenery = await (await fetch('./data/scenery.json')).json();

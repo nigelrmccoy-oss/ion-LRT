@@ -23,6 +23,7 @@ const hud = {
   slip: document.getElementById('slip')!,
   clock: document.getElementById('clock')!,
   limitVal: document.getElementById('limitVal')!,
+  weather: document.getElementById('weatherVal')!,
 };
 
 let stationsData: any = null;

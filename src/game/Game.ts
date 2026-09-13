@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { Elevation } from './elevation';
 import { Track } from './Track';
 import { TrainPhysics, type Weather } from './Physics';
+import { WeatherFX } from './WeatherFX';
 import { Input } from './Input';
 import { AudioEngine } from './AudioEngine';
 import { createFlexity, createDieselConsist } from './Vehicles';
@@ -48,9 +49,13 @@ export class Game {
   private keyTimer = new Map<string, number>();
   private hud: Record<string, HTMLElement>;
   private onEnd: ((html: string) => void) | null = null;
+  private weatherFx: WeatherFX | null = null;
+  private tod: 'day' | 'dusk' | 'night' = 'day';
+  private windshield: HTMLElement | null = null;
 
   constructor(canvas: HTMLCanvasElement, hud: Record<string, HTMLElement>) {
     this.hud = hud;
+    this.windshield = document.getElementById('windshield');
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 1.75));
     this.renderer.setSize(innerWidth, innerHeight);
@@ -97,12 +102,15 @@ export class Game {
     this.scene.remove(this.stations.group);
     if (this.train) this.scene.remove(this.train);
     this.stats = { overspeed: 0, wheelslip: 0, stopAcc: [], started: performance.now() };
+    this.tod = opts.tod;
     this.applyTod(opts.tod);
+    this.setupWeather(opts.weather);
 
     await this.elev.load();
     this.terrain = new TerrainSystem(this.elev);
     await this.terrain.loadScenery();
     this.scene.add(this.terrain.group);
+    this.terrain.setWet(this.weather === 'rain');
 
     const elevMeta = this.elev.meta;
     const stationsData = (await (await fetch('./data/stations.json')).json()) as StationsFile;
@@ -167,6 +175,20 @@ export class Game {
       this.hemi.intensity = 0.15;
       this.sun.intensity = 0.05;
       this.simClock = 22 * 3600;
+    }
+  }
+
+
+  private setupWeather(w: Weather) {
+    if (this.weatherFx) {
+      this.weatherFx.dispose();
+      this.weatherFx = null;
+    }
+    this.weatherFx = new WeatherFX(this.scene);
+    this.weatherFx.setWeather(w, this.tod);
+    if (this.terrain) this.terrain.setWet(w === 'rain');
+    if (this.windshield) {
+      this.windshield.className = w === 'rain' ? 'wet' : w === 'snow' ? 'frost' : '';
     }
   }
 
@@ -264,6 +286,7 @@ export class Game {
     this.sun.target.position.set(p.x, p.y, p.z);
     this.sun.target.updateMatrixWorld();
 
+    this.weatherFx?.update(dt, this.camera);
     this.updateHud(limit);
     this.renderer.render(this.scene, this.camera);
 
@@ -302,6 +325,10 @@ export class Game {
     this.hud.powerVal.textContent = String(this.physics.powerNotch);
     this.hud.brakeVal.textContent = String(this.physics.brakeNotch);
     this.hud.limitVal.textContent = String(limit);
+    if (this.hud.weather) {
+      const label = this.weather === 'dry' ? 'Dry' : this.weather === 'rain' ? 'Rain' : 'Snow';
+      this.hud.weather.textContent = label;
+    }
     const next = this.stations.nextStation(this.s);
     this.hud.nextStation.textContent = next ? `${next.name} (${Math.max(0, Math.round(next.distance_m - this.s))} m)` : 'End of line';
     this.hud.doors.textContent = this.physics.doorsOpen ? 'Doors OPEN' : 'Doors closed';
@@ -317,6 +344,7 @@ export class Game {
 
   stop() {
     this.running = false;
+    if (this.windshield) this.windshield.className = '';
   }
 
   private finish() {
