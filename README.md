@@ -1,10 +1,25 @@
-# ION LRT Simulator **v1.1a**
+# ION LRT Simulator **v1.2**
 
 **v1.1a** — real Flexity / WCR masses and traction, TTC-style door-close chime. Builds on v1.1 ROW/roads/signals.
 
 Playable browser cab simulator of the Waterloo Region **ION LRT** (GrandLinq / Keolis / GRT tribute), plus the **CN Waterloo Spur / WCR to Elmira** and **Kitchener–Guelph** heavy-rail routes.
 
 Built with **Vite + TypeScript + Three.js**. No Blender/Unity. No backend.
+
+## Play (Windows)
+
+Download the **v1.2** release zip from GitHub, unzip the whole folder, then double-click `ION LRT Simulator.exe` inside it. Keep the exe next to the other files in that folder.
+
+Same game as this repo — not a fork. Rebuild the window after sim changes with `npm start`.
+
+From source:
+
+```bash
+npm install
+npm start
+```
+
+`npm start` builds the game and opens it in a desktop window.
 
 ## Quick start
 
