@@ -1,0 +1,561 @@
+{
+  "meta": {
+    "ion_km": 15.93,
+    "spur_km": 11.61,
+    "guelph_km": 22.07,
+    "source": "OpenStreetMap + Wikipedia station coords",
+    "one_way": "SB: Willis Way, Victoria Park, Queen; NB: Waterloo Public Square, Kitchener City Hall, Frederick"
+  },
+  "routes": {
+    "ion_southbound": {
+      "id": "ion_sb",
+      "name": "301 Fairway",
+      "vehicle": "flexity",
+      "track": "ion-track.geojson",
+      "reverse": false,
+      "stations": [
+        {
+          "id": "conestoga",
+          "name": "Conestoga",
+          "lat": 43.49806,
+          "lon": -80.52917,
+          "directions": [
+            "sb"
+          ],
+          "trackIndex": 1,
+          "distance_m": 17,
+          "snap_lon": -80.52935915,
+          "snap_lat": 43.498002549999995,
+          "snap_err_m": 17
+        },
+        {
+          "id": "northfield",
+          "name": "Northfield",
+          "lat": 43.49736,
+          "lon": -80.5433,
+          "directions": [
+            "sb"
+          ],
+          "trackIndex": 107,
+          "distance_m": 1523,
+          "snap_lon": -80.54324857499999,
+          "snap_lat": 43.497357225,
+          "snap_err_m": 4
+        },
+        {
+          "id": "research",
+          "name": "Research and Technology",
+          "lat": 43.48136,
+          "lon": -80.54527,
+          "directions": [
+            "sb"
+          ],
+          "trackIndex": 225,
+          "distance_m": 3381,
+          "snap_lon": -80.545082,
+          "snap_lat": 43.4813542,
+          "snap_err_m": 15
+        },
+        {
+          "id": "uw",
+          "name": "University of Waterloo",
+          "lat": 43.47312,
+          "lon": -80.54107,
+          "directions": [
+            "sb"
+          ],
+          "trackIndex": 287,
+          "distance_m": 4355,
+          "snap_lon": -80.54104996666666,
+          "snap_lat": 43.473183066666664,
+          "snap_err_m": 7
+        },
+        {
+          "id": "laurier",
+          "name": "Laurier–Waterloo Park",
+          "lat": 43.46899,
+          "lon": -80.5345,
+          "directions": [
+            "sb"
+          ],
+          "trackIndex": 335,
+          "distance_m": 5065,
+          "snap_lon": -80.53451205,
+          "snap_lat": 43.468962275,
+          "snap_err_m": 3
+        },
+        {
+          "id": "willis",
+          "name": "Willis Way",
+          "lat": 43.46228,
+          "lon": -80.52354,
+          "directions": [
+            "sb"
+          ],
+          "trackIndex": 419,
+          "distance_m": 6271,
+          "snap_lon": -80.52351753333333,
+          "snap_lat": 43.4622616,
+          "snap_err_m": 3
+        },
+        {
+          "id": "allen",
+          "name": "Allen",
+          "lat": 43.46015,
+          "lon": -80.51886,
+          "directions": [
+            "sb"
+          ],
+          "trackIndex": 462,
+          "distance_m": 6797,
+          "snap_lon": -80.5189359,
+          "snap_lat": 43.4601345,
+          "snap_err_m": 6
+        },
+        {
+          "id": "grh",
+          "name": "Grand River Hospital",
+          "lat": 43.4573,
+          "lon": -80.51217,
+          "directions": [
+            "sb"
+          ],
+          "trackIndex": 500,
+          "distance_m": 7434,
+          "snap_lon": -80.51215594,
+          "snap_lat": 43.4572814,
+          "snap_err_m": 2
+        },
+        {
+          "id": "central",
+          "name": "Central Station",
+          "lat": 43.45304,
+          "lon": -80.49874,
+          "directions": [
+            "sb"
+          ],
+          "trackIndex": 572,
+          "distance_m": 8622,
+          "snap_lon": -80.49869886666666,
+          "snap_lat": 43.45296006666667,
+          "snap_err_m": 9
+        },
+        {
+          "id": "victoria",
+          "name": "Victoria Park",
+          "lat": 43.45016,
+          "lon": -80.49354,
+          "directions": [
+            "sb"
+          ],
+          "trackIndex": 618,
+          "distance_m": 9214,
+          "snap_lon": -80.493604475,
+          "snap_lat": 43.450189925000004,
+          "snap_err_m": 6
+        },
+        {
+          "id": "queen",
+          "name": "Queen",
+          "lat": 43.4472,
+          "lon": -80.4865,
+          "directions": [
+            "sb"
+          ],
+          "trackIndex": 667,
+          "distance_m": 9876,
+          "snap_lon": -80.48630675384615,
+          "snap_lat": 43.44752261538462,
+          "snap_err_m": 39
+        },
+        {
+          "id": "market",
+          "name": "Kitchener Market",
+          "lat": 43.4435,
+          "lon": -80.481,
+          "directions": [
+            "sb"
+          ],
+          "trackIndex": 704,
+          "distance_m": 10482,
+          "snap_lon": -80.48003957272728,
+          "snap_lat": 43.444527063636365,
+          "snap_err_m": 138
+        },
+        {
+          "id": "borden",
+          "name": "Borden",
+          "lat": 43.439,
+          "lon": -80.4755,
+          "directions": [
+            "sb"
+          ],
+          "trackIndex": 764,
+          "distance_m": 11324,
+          "snap_lon": -80.4767842,
+          "snap_lat": 43.4398318,
+          "snap_err_m": 139
+        },
+        {
+          "id": "mill",
+          "name": "Mill",
+          "lat": 43.43395,
+          "lon": -80.47839,
+          "directions": [
+            "sb"
+          ],
+          "trackIndex": 823,
+          "distance_m": 12166,
+          "snap_lon": -80.4784172,
+          "snap_lat": 43.4339907,
+          "snap_err_m": 5
+        },
+        {
+          "id": "blockline",
+          "name": "Block Line",
+          "lat": 43.4226,
+          "lon": -80.46263,
+          "directions": [
+            "sb"
+          ],
+          "trackIndex": 950,
+          "distance_m": 14089,
+          "snap_lon": -80.4627728,
+          "snap_lat": 43.4225112,
+          "snap_err_m": 15
+        },
+        {
+          "id": "fairway",
+          "name": "Fairway",
+          "lat": 43.42236,
+          "lon": -80.44194,
+          "directions": [
+            "sb"
+          ],
+          "trackIndex": 1071,
+          "distance_m": 15930,
+          "snap_lon": -80.4419779,
+          "snap_lat": 43.4223314,
+          "snap_err_m": 4
+        }
+      ]
+    },
+    "ion_northbound": {
+      "id": "ion_nb",
+      "name": "301 Conestoga",
+      "vehicle": "flexity",
+      "track": "ion-track.geojson",
+      "reverse": true,
+      "stations": [
+        {
+          "id": "fairway",
+          "name": "Fairway",
+          "lat": 43.42236,
+          "lon": -80.44194,
+          "directions": [
+            "nb"
+          ],
+          "trackIndex": 0,
+          "distance_m": 0,
+          "snap_lon": -80.4419779,
+          "snap_lat": 43.4223314,
+          "snap_err_m": 4
+        },
+        {
+          "id": "blockline",
+          "name": "Block Line",
+          "lat": 43.4226,
+          "lon": -80.46263,
+          "directions": [
+            "nb"
+          ],
+          "trackIndex": 121,
+          "distance_m": 1840,
+          "snap_lon": -80.4627728,
+          "snap_lat": 43.4225112,
+          "snap_err_m": 15
+        },
+        {
+          "id": "mill",
+          "name": "Mill",
+          "lat": 43.43395,
+          "lon": -80.47839,
+          "directions": [
+            "nb"
+          ],
+          "trackIndex": 248,
+          "distance_m": 3764,
+          "snap_lon": -80.4784172,
+          "snap_lat": 43.4339907,
+          "snap_err_m": 5
+        },
+        {
+          "id": "borden",
+          "name": "Borden",
+          "lat": 43.439,
+          "lon": -80.4755,
+          "directions": [
+            "nb"
+          ],
+          "trackIndex": 307,
+          "distance_m": 4606,
+          "snap_lon": -80.4767842,
+          "snap_lat": 43.4398318,
+          "snap_err_m": 139
+        },
+        {
+          "id": "market",
+          "name": "Kitchener Market",
+          "lat": 43.4435,
+          "lon": -80.481,
+          "directions": [
+            "nb"
+          ],
+          "trackIndex": 367,
+          "distance_m": 5448,
+          "snap_lon": -80.48003957272728,
+          "snap_lat": 43.444527063636365,
+          "snap_err_m": 138
+        },
+        {
+          "id": "frederick",
+          "name": "Frederick",
+          "lat": 43.4488,
+          "lon": -80.4878,
+          "directions": [
+            "nb"
+          ],
+          "trackIndex": 414,
+          "distance_m": 6218,
+          "snap_lon": -80.4880753,
+          "snap_lat": 43.4482552,
+          "snap_err_m": 65
+        },
+        {
+          "id": "cityhall",
+          "name": "Kitchener City Hall",
+          "lat": 43.4516,
+          "lon": -80.4925,
+          "directions": [
+            "nb"
+          ],
+          "trackIndex": 452,
+          "distance_m": 6700,
+          "snap_lon": -80.4934323,
+          "snap_lat": 43.4501347,
+          "snap_err_m": 179
+        },
+        {
+          "id": "central",
+          "name": "Central Station",
+          "lat": 43.45304,
+          "lon": -80.49874,
+          "directions": [
+            "nb"
+          ],
+          "trackIndex": 499,
+          "distance_m": 7308,
+          "snap_lon": -80.49869886666666,
+          "snap_lat": 43.45296006666667,
+          "snap_err_m": 9
+        },
+        {
+          "id": "grh",
+          "name": "Grand River Hospital",
+          "lat": 43.4573,
+          "lon": -80.51217,
+          "directions": [
+            "nb"
+          ],
+          "trackIndex": 571,
+          "distance_m": 8496,
+          "snap_lon": -80.51215594,
+          "snap_lat": 43.4572814,
+          "snap_err_m": 2
+        },
+        {
+          "id": "allen",
+          "name": "Allen",
+          "lat": 43.46015,
+          "lon": -80.51886,
+          "directions": [
+            "nb"
+          ],
+          "trackIndex": 609,
+          "distance_m": 9132,
+          "snap_lon": -80.5189359,
+          "snap_lat": 43.4601345,
+          "snap_err_m": 6
+        },
+        {
+          "id": "publicsquare",
+          "name": "Waterloo Public Square",
+          "lat": 43.46414,
+          "lon": -80.52289,
+          "directions": [
+            "nb"
+          ],
+          "trackIndex": 663,
+          "distance_m": 9821,
+          "snap_lon": -80.5245298,
+          "snap_lat": 43.4635182,
+          "snap_err_m": 149
+        },
+        {
+          "id": "laurier",
+          "name": "Laurier–Waterloo Park",
+          "lat": 43.46899,
+          "lon": -80.5345,
+          "directions": [
+            "nb"
+          ],
+          "trackIndex": 736,
+          "distance_m": 10865,
+          "snap_lon": -80.53451205,
+          "snap_lat": 43.468962275,
+          "snap_err_m": 3
+        },
+        {
+          "id": "uw",
+          "name": "University of Waterloo",
+          "lat": 43.47312,
+          "lon": -80.54107,
+          "directions": [
+            "nb"
+          ],
+          "trackIndex": 784,
+          "distance_m": 11575,
+          "snap_lon": -80.54104996666666,
+          "snap_lat": 43.473183066666664,
+          "snap_err_m": 7
+        },
+        {
+          "id": "research",
+          "name": "Research and Technology",
+          "lat": 43.48136,
+          "lon": -80.54527,
+          "directions": [
+            "nb"
+          ],
+          "trackIndex": 846,
+          "distance_m": 12549,
+          "snap_lon": -80.545082,
+          "snap_lat": 43.4813542,
+          "snap_err_m": 15
+        },
+        {
+          "id": "northfield",
+          "name": "Northfield",
+          "lat": 43.49736,
+          "lon": -80.5433,
+          "directions": [
+            "nb"
+          ],
+          "trackIndex": 964,
+          "distance_m": 14407,
+          "snap_lon": -80.54324857499999,
+          "snap_lat": 43.497357225,
+          "snap_err_m": 4
+        },
+        {
+          "id": "conestoga",
+          "name": "Conestoga",
+          "lat": 43.49806,
+          "lon": -80.52917,
+          "directions": [
+            "nb"
+          ],
+          "trackIndex": 1070,
+          "distance_m": 15913,
+          "snap_lon": -80.52935915,
+          "snap_lat": 43.498002549999995,
+          "snap_err_m": 17
+        }
+      ]
+    },
+    "elmira": {
+      "id": "elmira",
+      "name": "WCR to Elmira",
+      "vehicle": "diesel",
+      "track": "waterloo-spur.geojson",
+      "reverse": false,
+      "stations": [
+        {
+          "id": "northfield",
+          "name": "Northfield",
+          "lat": 43.49736,
+          "lon": -80.5433,
+          "trackIndex": 2,
+          "distance_m": 43,
+          "snap_lon": -80.54343714999999,
+          "snap_lat": 43.49741055,
+          "snap_err_m": 12
+        },
+        {
+          "id": "stjacobs",
+          "name": "St. Jacobs",
+          "lat": 43.5405,
+          "lon": -80.5538,
+          "trackIndex": 233,
+          "distance_m": 4949,
+          "snap_lon": -80.55790403333333,
+          "snap_lat": 43.539646366666666,
+          "snap_err_m": 344
+        },
+        {
+          "id": "elmira",
+          "name": "Elmira",
+          "lat": 43.5985,
+          "lon": -80.5555,
+          "trackIndex": 523,
+          "distance_m": 11612,
+          "snap_lon": -80.5523074,
+          "snap_lat": 43.5983294,
+          "snap_err_m": 258
+        }
+      ]
+    },
+    "guelph": {
+      "id": "guelph",
+      "name": "Kitchener–Guelph",
+      "vehicle": "diesel",
+      "track": "guelph-sub.geojson",
+      "reverse": false,
+      "stations": [
+        {
+          "id": "kitchener",
+          "name": "Kitchener",
+          "lat": 43.4556,
+          "lon": -80.4985,
+          "trackIndex": 0,
+          "distance_m": 0,
+          "snap_lon": -80.4941317,
+          "snap_lat": 43.4554229,
+          "snap_err_m": 353
+        },
+        {
+          "id": "breslau",
+          "name": "Breslau",
+          "lat": 43.4748,
+          "lon": -80.4165,
+          "trackIndex": 283,
+          "distance_m": 6675,
+          "snap_lon": -80.41831511428572,
+          "snap_lat": 43.47925092857143,
+          "snap_err_m": 516
+        },
+        {
+          "id": "guelph",
+          "name": "Guelph",
+          "lat": 43.5445,
+          "lon": -80.2495,
+          "trackIndex": 947,
+          "distance_m": 22066,
+          "snap_lon": -80.2489582,
+          "snap_lat": 43.542467,
+          "snap_err_m": 230
+        }
+      ]
+    }
+  }
+}

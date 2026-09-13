@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ION LRT Simulator — Waterloo Region</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <div id="app">
+      <div id="menu" class="panel">
+        <h1>ION LRT Simulator</h1>
+        <p class="sub">Waterloo Region · GrandLinq / Keolis / GRT tribute · browser cab sim</p>
+        <label>Route
+          <select id="route">
+            <option value="ion_southbound">301 Fairway (ION LRT)</option>
+            <option value="ion_northbound">301 Conestoga (ION LRT)</option>
+            <option value="elmira">WCR to Elmira (Waterloo Spur)</option>
+            <option value="guelph">Kitchener–Guelph (CN/Metrolinx)</option>
+          </select>
+        </label>
+        <label>Start station
+          <select id="startStation"></select>
+        </label>
+        <label>Weather
+          <select id="weather">
+            <option value="dry">Dry</option>
+            <option value="rain">Rain</option>
+            <option value="snow">Snow</option>
+          </select>
+        </label>
+        <label>Time of day
+          <select id="tod">
+            <option value="day">Day</option>
+            <option value="dusk">Dusk</option>
+            <option value="night">Night</option>
+          </select>
+        </label>
+        <button id="startBtn" type="button">Start run</button>
+        <div class="help">
+          <strong>Controls</strong>
+          <ul>
+            <li>W / ↑ power · S / ↓ brake</li>
+            <li>R reverser F–N–R · T doors · Space horn</li>
+            <li>Shift sand · P pantograph · C camera · Esc menu</li>
+            <li>Mouse look (click canvas to capture)</li>
+          </ul>
+        </div>
+      </div>
+      <div id="hud" class="hidden">
+        <div id="speedo"><span id="speedVal">0</span><small>km/h</small></div>
+        <div id="notches">P<span id="powerVal">0</span> B<span id="brakeVal">0</span></div>
+        <div id="next">Next: <span id="nextStation">—</span></div>
+        <div id="status">
+          <span id="doors">Doors closed</span> ·
+          <span id="panto">Panto up</span> ·
+          <span id="reverser">N</span> ·
+          <span id="voltage">750 V</span>
+          <span id="slip" class="lamp off">SLIP</span>
+        </div>
+        <div id="clock">12:00</div>
+        <div id="limit">Limit <span id="limitVal">70</span></div>
+      </div>
+      <div id="endReport" class="panel hidden"></div>
+      <canvas id="c"></canvas>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

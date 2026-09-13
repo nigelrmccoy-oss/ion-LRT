@@ -1,0 +1,19 @@
+{
+  "name": "ion-lrt",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "three": "^0.170.0"
+  },
+  "devDependencies": {
+    "typescript": "~5.6.3",
+    "vite": "^6.0.0",
+    "@types/three": "^0.170.0"
+  }
+}
