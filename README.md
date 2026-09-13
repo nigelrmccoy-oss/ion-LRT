@@ -1,7 +1,6 @@
-# ION LRT Simulator **v1.0a**
+# ION LRT Simulator **v1.1**
 
-**v1.0a** — weather visuals (rain/snow), adhesion on brakes, vehicle speed caps, automated stress tests.
-
+**v1.1** — realism pass: OSM-derived right-of-way (reserved vs street), corridor roads, traffic signals with TSP, rail crossings.
 
 Playable browser cab simulator of the Waterloo Region **ION LRT** (GrandLinq / Keolis / GRT tribute), plus the **CN Waterloo Spur / WCR to Elmira** and **Kitchener–Guelph** heavy-rail routes.
 
@@ -36,6 +35,8 @@ npm run preview
 | Esc | Menu |
 | Mouse | Look (click canvas to capture) |
 
+**Street-running:** traffic signals cycle red/amber/green. Approaching slowly enables a short TSP wait then green bias (not always magically green). Running a red counts as a violation on the end-of-run report.
+
 ## Routes
 
 1. **301 Fairway** — ION LRT Conestoga → Fairway (Flexity Freedom tribute)
@@ -59,7 +60,7 @@ One-way ION platforms (baked into station lists):
 - Blended regen + friction brake model
 - Simple vigilance timer (hold power/brake to reset)
 
-Civil speed heuristics: reserved ~70, street/curve ~40, station ~25 km/h.
+Civil speed from **ROW class** (OSM-derived): reserved ~70, street ~40, station ~25 km/h. Curvature heuristic remains only as fallback where ROW samples are missing.
 
 ## Terrain & elevation (vertical scale = 1.0)
 
@@ -79,7 +80,7 @@ Baked into the repo:
 | University of Waterloo | 338.0 |
 | Uptown Waterloo | 326.5 |
 | Downtown Kitchener | 332.4 |
-| Victoria Park | 331.9 |
+| Block Line | 331.9 |
 | Fairway | 329.5 |
 | St. Jacobs | 330.4 |
 | Elmira | 363.9 |
@@ -90,12 +91,19 @@ Rails sit on the DEM (+~0.35 m track bed). Grade physics uses the same track pro
 
 ## Data sources
 
-- **Alignment**: OpenStreetMap Overpass (`railway=light_rail` ION; `CN Waterloo Spur`; Metrolinx/CN Guelph Subdivision). Baked GeoJSON in `public/data/`.
+- **Alignment**: OpenStreetMap Overpass (`railway=light_rail` ION; Waterloo Spur; Metrolinx/CN Guelph Subdivision). Baked GeoJSON in `public/data/`.
 - **Stations**: Wikipedia / GRT published coordinates, snapped to OSM track.
 - **Elevation**: SRTM 30 m (see above).
 - **Scenery**: OpenStreetMap landuse, parks, water, building footprints (extruded). **Stylized-realistic** — no Google Street View, Google Maps tiles, Apple Maps, or Look Around.
+- **Roads / signals / ROW (v1.1)**: OpenStreetMap Overpass only.
+  - `public/data/roads.geojson` — thinned highway network near the three rail corridors
+  - `public/data/signals.json` — `highway=traffic_signals` / `crossing=traffic_signals` within ~40 m of ION
+  - `public/data/crossings.json` — `railway=crossing` / `level_crossing` on ION, Spur, Guelph Sub
+  - `public/data/row-segments.json` — ION samples (~40 m) classified `reserved` / `street` / `station`
 
-Re-bake scripts (optional): `scripts/bake-stations.mjs`, `scripts/bake-elevation-srtm.mjs`, `scripts/bake-scenery.mjs`.
+ION OSM ways in this extract lack `embedded` / shared `highway` tags, so street vs reserved is derived from proximity to arterials named **King / Charles / Caroline** (verified KW mixed-running streets). Parallel reserved corridors (e.g. Northfield median, old CN ROW) stay `reserved`. ION street sections use traffic-signal TSP; Elmira/Guelph use crossing gates/flashers.
+
+Re-bake scripts (optional): `scripts/bake-stations.mjs`, `scripts/bake-elevation-srtm.mjs`, `scripts/bake-scenery.mjs`, `scripts/bake-row-roads-signals.mjs`.
 
 ## Vehicle notes
 
@@ -108,11 +116,11 @@ Re-bake scripts (optional): `scripts/bake-stations.mjs`, `scripts/bake-elevation
 npm test
 ```
 
-Headless stress suite (`scripts/stress-test.mjs`) covers adhesion, vMax, interlocks, grades, and civil limits.
+Headless stress suite (`scripts/stress-test.mjs`) covers adhesion, vMax, interlocks, grades, civil/ROW limits, and red-signal violation helpers.
 
 ## Performance
 
-World streams in ~400 m chunks with LOD-style culling (~±2 chunks). Mid-laptop target ~60 fps in cab view.
+World streams in ~400 m chunks with LOD-style culling (~±2 chunks). Roads are corridor-thinned (not every alley 2 km off the line). Mid-laptop target ~60 fps in cab view.
 
 ## License / attribution
 

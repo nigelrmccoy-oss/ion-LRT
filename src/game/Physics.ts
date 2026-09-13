@@ -10,12 +10,14 @@ export type PhysicsConfig = {
 export const VMAX_ELECTRIC_MS = 80 / 3.6;
 export const VMAX_DIESEL_MS = 95 / 3.6;
 
-/** Civil speed-limit heuristics (km/h) — mirrors Track.speedLimitKmh */
+/** Civil speed-limit by ROW class (km/h) */
 export const SPEED_LIMITS_KMH = {
   station: 25,
   street: 40,
   reserved: 70,
 } as const;
+
+export type RowClass = keyof typeof SPEED_LIMITS_KMH;
 
 export function adhesionMu(weather: Weather, sanding: boolean): number {
   let mu = weather === 'dry' ? 0.30 : weather === 'rain' ? 0.18 : 0.10;
@@ -23,13 +25,19 @@ export function adhesionMu(weather: Weather, sanding: boolean): number {
   return mu;
 }
 
-/** Standalone speed-limit helper for tests / HUD logic. */
+/**
+ * Standalone speed-limit helper for tests / HUD logic.
+ * Prefer explicit rowClass (OSM-derived). Curvature is fallback only when rowClass omitted.
+ */
 export function civilSpeedLimitKmh(
   nearStation: boolean,
   curvature: number,
-  opts?: { ionStreetRunning?: boolean },
+  opts?: { ionStreetRunning?: boolean; rowClass?: RowClass },
 ): number {
-  if (nearStation) return SPEED_LIMITS_KMH.station;
+  if (nearStation || opts?.rowClass === 'station') return SPEED_LIMITS_KMH.station;
+  if (opts?.rowClass === 'street') return SPEED_LIMITS_KMH.street;
+  if (opts?.rowClass === 'reserved') return SPEED_LIMITS_KMH.reserved;
+  // fallback: curvature heuristic
   if (Math.abs(curvature) > 0.004) return SPEED_LIMITS_KMH.street;
   if (opts?.ionStreetRunning && Math.abs(curvature) > 0.0015) return SPEED_LIMITS_KMH.street;
   return SPEED_LIMITS_KMH.reserved;

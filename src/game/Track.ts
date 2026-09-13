@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { lonLatToLocal } from './coords';
 import type { Elevation } from './elevation';
-import { SPEED_LIMITS_KMH } from './Physics';
+import { SPEED_LIMITS_KMH, civilSpeedLimitKmh, type RowClass } from './Physics';
 
 export type TrackPoint = {
   lon: number;
@@ -18,6 +18,8 @@ export class Track {
   points: TrackPoint[] = [];
   length = 0;
   name: string;
+  /** Optional OSM ROW lookup: (s, nearStation) => class */
+  rowLookup: ((s: number, nearStation: boolean) => { row: RowClass; limitKmh: number }) | null = null;
 
   constructor(name: string) {
     this.name = name;
@@ -113,15 +115,23 @@ export class Track {
     };
   }
 
-  /** Civil speed limit heuristic km/h */
+  /** Civil speed limit — OSM ROW when available, else curvature heuristic. */
   speedLimitKmh(s: number, nearStation: boolean) {
-    if (nearStation) return SPEED_LIMITS_KMH.station;
-    const p = this.sample(s);
-    if (Math.abs(p.curvature) > 0.004) return SPEED_LIMITS_KMH.street; // street / tight curve
-    // downtown / street-running proxy: low grade + mid route for ION
-    if (this.name.includes('ION') && s > 6000 && s < 13000 && Math.abs(p.curvature) > 0.0015) {
-      return SPEED_LIMITS_KMH.street;
+    if (this.rowLookup) {
+      const r = this.rowLookup(s, nearStation);
+      return r.limitKmh;
     }
-    return SPEED_LIMITS_KMH.reserved;
+    const p = this.sample(s);
+    return civilSpeedLimitKmh(nearStation, p.curvature, {
+      ionStreetRunning: this.name.includes('ION'),
+    });
+  }
+
+  rowClassAt(s: number, nearStation: boolean): RowClass {
+    if (this.rowLookup) return this.rowLookup(s, nearStation).row;
+    if (nearStation) return 'station';
+    const lim = this.speedLimitKmh(s, false);
+    if (lim <= SPEED_LIMITS_KMH.street) return 'street';
+    return 'reserved';
   }
 }

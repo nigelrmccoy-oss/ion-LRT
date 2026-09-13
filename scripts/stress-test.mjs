@@ -1,9 +1,9 @@
 /**
- * Headless stress suite for TrainPhysics (same source as the game).
- * Bundles src/game/Physics.ts via esbuild, then runs cases a–h.
+ * Headless stress suite for TrainPhysics + ROW/signal helpers.
+ * Bundles src/game/Physics.ts, Row.ts, Signals.ts via esbuild.
  */
 import * as esbuild from 'esbuild';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -11,6 +11,8 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, '..');
 const physicsEntry = path.join(root, 'src/game/Physics.ts');
+const rowEntry = path.join(root, 'src/game/Row.ts');
+const signalsEntry = path.join(root, 'src/game/Signals.ts');
 
 const results = [];
 function pass(name, detail = '') {
@@ -26,11 +28,11 @@ function assert(name, cond, detail = '') {
   else fail(name, detail);
 }
 
-async function loadPhysics() {
-  const dir = await mkdtemp(path.join(tmpdir(), 'ion-lrt-stress-'));
-  const outfile = path.join(dir, 'Physics.mjs');
+async function bundleEntry(entry, name) {
+  const dir = await mkdtemp(path.join(tmpdir(), `ion-lrt-${name}-`));
+  const outfile = path.join(dir, `${name}.mjs`);
   await esbuild.build({
-    entryPoints: [physicsEntry],
+    entryPoints: [entry],
     outfile,
     format: 'esm',
     platform: 'neutral',
@@ -43,7 +45,7 @@ async function loadPhysics() {
 
 async function main() {
   console.log('ION LRT stress tests\n');
-  const { mod, cleanup } = await loadPhysics();
+  const { mod, cleanup } = await bundleEntry(physicsEntry, 'Physics');
   const {
     TrainPhysics,
     VMAX_ELECTRIC_MS,
@@ -104,13 +106,6 @@ async function main() {
     }
     assert('b. rain notch8 wheelslips', slipped, `dist=${distNoSand.toFixed(1)}m`);
 
-    const sand = electric('rain');
-    sand.reverser = 1;
-    sand.powerNotch = 8;
-    sand.sanding = true;
-    let slipTimeSand = 0;
-    let slipTimeNo = 0;
-    // re-sim both for slip time + speed at 15s
     const r2 = electric('rain');
     r2.reverser = 1;
     r2.powerNotch = 8;
@@ -119,6 +114,8 @@ async function main() {
     s2.reverser = 1;
     s2.powerNotch = 8;
     s2.sanding = true;
+    let slipTimeSand = 0;
+    let slipTimeNo = 0;
     for (let t = 0; t < 15; t += dt) {
       r2.step(dt, 0, 0);
       s2.step(dt, 0, 0);
@@ -193,7 +190,6 @@ async function main() {
   // --- e. Interlocks: doors / reverser N / panto down → no TE ---
   {
     const dt = 0.1;
-    // doors open
     {
       const p = electric('dry');
       p.reverser = 1;
@@ -202,7 +198,6 @@ async function main() {
       const r = p.step(dt, 0, 0);
       assert('e. doors open → no TE', r.te === 0 && Math.abs(p.speed) < 0.01, `te=${r.te}`);
     }
-    // reverser N
     {
       const p = electric('dry');
       p.reverser = 0;
@@ -210,7 +205,6 @@ async function main() {
       const r = p.step(dt, 0, 0);
       assert('e. reverser N → no TE', r.te === 0, `te=${r.te}`);
     }
-    // panto down
     {
       const p = electric('dry');
       p.reverser = 1;
@@ -238,11 +232,16 @@ async function main() {
     assert('f. −2% grade increases accel vs flat', down > flat, `flat=${flat.toFixed(1)} down=${down.toFixed(1)}`);
   }
 
-  // --- g. Station 25 / street 40 / reserved 70 + overspeed detection ---
+  // --- g. Station 25 / street 40 / reserved 70 + overspeed + rowClass ---
   {
     assert('g. station limit 25', SPEED_LIMITS_KMH.station === 25 && civilSpeedLimitKmh(true, 0) === 25);
     assert('g. street limit 40', SPEED_LIMITS_KMH.street === 40 && civilSpeedLimitKmh(false, 0.005) === 40);
     assert('g. reserved limit 70', SPEED_LIMITS_KMH.reserved === 70 && civilSpeedLimitKmh(false, 0) === 70);
+    assert(
+      'g. rowClass overrides curvature',
+      civilSpeedLimitKmh(false, 0.01, { rowClass: 'reserved' }) === 70 &&
+        civilSpeedLimitKmh(false, 0, { rowClass: 'street' }) === 40,
+    );
     assert('g. overspeed detection', isOverspeed(73, 70) === true && isOverspeed(72, 70) === false && isOverspeed(70, 70) === false);
   }
 
@@ -255,11 +254,10 @@ async function main() {
       di.vMaxMs() > fe.vMaxMs() && VMAX_DIESEL_MS > VMAX_ELECTRIC_MS,
       `flexity=${(fe.vMaxMs() * 3.6).toFixed(1)} diesel=${(di.vMaxMs() * 3.6).toFixed(1)}`,
     );
-    // also clamp works for diesel above 80
     di.reverser = 1;
     di.powerNotch = 8;
     di.speed = 90 / 3.6;
-    for (let i = 0; i < 300; i++) di.step(1 / 30, -0.01, 0); // downhill help
+    for (let i = 0; i < 300; i++) di.step(1 / 30, -0.01, 0);
     assert(
       'h. diesel can exceed Flexity 80 but not its own vMax',
       di.speedKmh() <= 95.1,
@@ -267,10 +265,119 @@ async function main() {
     );
   }
 
-  // Extra: adhesion helpers exported
   assert('helper adhesionMu dry/rain/snow', adhesionMu('dry', false) === 0.3 && adhesionMu('rain', false) === 0.18 && adhesionMu('snow', false) === 0.1);
 
   await cleanup();
+
+  // --- i. ROW classifier samples: reserved 70 / street 40 / station 25 ---
+  {
+    const { mod: rowMod, cleanup: c2 } = await bundleEntry(rowEntry, 'Row');
+    const { RowClassifier, classifyIonRowSample, isStreetRunningArterialName } = rowMod;
+    assert('i. King South is street arterial', isStreetRunningArterialName('King Street South'));
+    assert('i. Charles is street arterial', isStreetRunningArterialName('Charles Street East'));
+    assert('i. Northfield is NOT street arterial', !isStreetRunningArterialName('Northfield Drive West'));
+    const st = classifyIonRowSample({
+      s: 7000,
+      arterialDistM: 4,
+      arterialName: 'King Street South',
+      nearStation: false,
+    });
+    assert('i. classify King → street 40', st.row === 'street' && st.limit_kmh === 40);
+    const res = classifyIonRowSample({
+      s: 2000,
+      arterialDistM: 5,
+      arterialName: 'Northfield Drive West',
+      nearStation: false,
+    });
+    assert('i. classify Northfield → reserved 70', res.row === 'reserved' && res.limit_kmh === 70);
+    const sta = classifyIonRowSample({
+      s: 7000,
+      arterialDistM: 4,
+      arterialName: 'King Street South',
+      nearStation: true,
+    });
+    assert('i. classify near station → 25', sta.row === 'station' && sta.limit_kmh === 25);
+
+    // Baked samples if present
+    try {
+      const raw = JSON.parse(await readFile(path.join(root, 'public/data/row-segments.json'), 'utf8'));
+      const samples = raw.samples || [];
+      const r1 = RowClassifier.classifyAt(samples, 2000, false, 0);
+      const r2 = RowClassifier.classifyAt(samples, 7500, false, 0);
+      const r3 = RowClassifier.classifyAt(samples, 0, true, 0);
+      assert('i. baked reserved ~70', r1.row === 'reserved' && r1.limitKmh === 70, `${r1.row}/${r1.limitKmh}`);
+      assert('i. baked street ~40', r2.row === 'street' && r2.limitKmh === 40, `${r2.row}/${r2.limitKmh}`);
+      assert('i. baked station ~25', r3.row === 'station' && r3.limitKmh === 25, `${r3.row}/${r3.limitKmh}`);
+    } catch (e) {
+      fail('i. baked row-segments.json', String(e));
+    }
+    await c2();
+  }
+
+  // --- j. Red-signal stop / violation hook ---
+  {
+    const { mod: sigMod, cleanup: c3 } = await bundleEntry(signalsEntry, 'Signals');
+    const { redSignalViolation, shouldHoldForRed, aspectAtTime, tspGreenBias } = sigMod;
+    assert(
+      'j. red violation when speeding through red in street',
+      redSignalViolation({
+        aspect: 'red',
+        speedKmh: 30,
+        distToSignalM: 10,
+        inStreetRow: true,
+      }) === true,
+    );
+    assert(
+      'j. no violation when stopped at red',
+      redSignalViolation({
+        aspect: 'red',
+        speedKmh: 2,
+        distToSignalM: 10,
+        inStreetRow: true,
+      }) === false,
+    );
+    assert(
+      'j. no violation on reserved ROW',
+      redSignalViolation({
+        aspect: 'red',
+        speedKmh: 40,
+        distToSignalM: 5,
+        inStreetRow: false,
+      }) === false,
+    );
+    assert(
+      'j. shouldHoldForRed at close red',
+      shouldHoldForRed({ aspect: 'red', distToSignalM: 15, inStreetRow: true }) === true,
+    );
+    assert(
+      'j. aspect cycles include red/amber/green',
+      aspectAtTime(0, 0) === 'green' &&
+        aspectAtTime(15, 0) === 'amber' &&
+        aspectAtTime(20, 0) === 'red',
+    );
+    assert(
+      'j. TSP bias after wait when slow+close',
+      tspGreenBias({
+        distAlongM: 40,
+        absDistM: 40,
+        speedKmh: 20,
+        approachM: 80,
+        speedThreshKmh: 25,
+        waitS: 2.5,
+        timeInApproachS: 3,
+      }) === 8 &&
+        tspGreenBias({
+          distAlongM: 40,
+          absDistM: 40,
+          speedKmh: 40,
+          approachM: 80,
+          speedThreshKmh: 25,
+          waitS: 2.5,
+          timeInApproachS: 3,
+        }) === 0,
+    );
+    await c3();
+  }
 
   const failed = results.filter((r) => !r.ok);
   console.log(`\n${results.length - failed.length}/${results.length} passed`);

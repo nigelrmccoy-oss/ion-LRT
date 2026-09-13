@@ -3,13 +3,13 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>ION LRT Simulator v1.0a — Waterloo Region</title>
+    <title>ION LRT Simulator v1.1 — Waterloo Region</title>
     <link rel="stylesheet" href="/src/style.css" />
   </head>
   <body>
     <div id="app">
       <div id="menu" class="panel">
-        <h1>ION LRT Simulator <span class="ver">v1.0a</span></h1>
+        <h1>ION LRT Simulator <span class="ver">v1.1</span></h1>
         <p class="sub">Waterloo Region · GrandLinq / Keolis / GRT tribute · browser cab sim</p>
         <label>Route
           <select id="route">
@@ -44,6 +44,7 @@
             <li>R reverser F–N–R · T doors · Space horn</li>
             <li>Shift sand · P pantograph · C camera · Esc menu</li>
             <li>Mouse look (click canvas to capture)</li>
+            <li>Street ROW: stop for red traffic signals (TSP)</li>
           </ul>
         </div>
       </div>
@@ -60,6 +61,8 @@
         </div>
         <div id="clock">12:00</div>
         <div id="limit">Limit <span id="limitVal">70</span></div>
+        <div id="rowHud">ROW <span id="rowVal">Reserved</span></div>
+        <div id="signalHud">Signal <span id="signalVal">—</span></div>
         <div id="weatherHud">Weather <span id="weatherVal">Dry</span></div>
       </div>
       <div id="endReport" class="panel hidden"></div>

@@ -24,6 +24,8 @@ const hud = {
   clock: document.getElementById('clock')!,
   limitVal: document.getElementById('limitVal')!,
   weather: document.getElementById('weatherVal')!,
+  rowVal: document.getElementById('rowVal')!,
+  signalVal: document.getElementById('signalVal')!,
 };
 
 let stationsData: any = null;

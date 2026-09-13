@@ -1,7 +1,7 @@
 {
   "name": "ion-lrt",
   "private": true,
-  "version": "1.0.0-a",
+  "version": "1.1.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -17,5 +17,5 @@
     "vite": "^6.0.0",
     "@types/three": "^0.170.0"
   },
-  "displayName": "ION LRT Simulator v1.0a"
+  "displayName": "ION LRT Simulator v1.1"
 }
