@@ -138,6 +138,10 @@ export class TrainPhysics {
   }
 
   step(dt: number, grade: number, curvature: number) {
+    // Non-finite grade/curvature → 0 so speed never becomes NaN
+    if (!Number.isFinite(grade)) grade = 0;
+    if (!Number.isFinite(curvature)) curvature = 0;
+
     // Doors interlock / reverser / vigilance
     const canPower = !this.doorsOpen && this.reverser !== 0 && this.deadmanOk;
     const notchP = canPower ? this.powerNotch : 0;
@@ -168,6 +172,7 @@ export class TrainPhysics {
 
     const a = F / this.massKg;
     this.speed += a * dt;
+    if (!Number.isFinite(this.speed)) this.speed = 0;
 
     // Vehicle max speed cap (after integrate)
     const vmax = this.vMaxMs();

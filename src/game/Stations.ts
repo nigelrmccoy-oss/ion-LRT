@@ -78,6 +78,14 @@ export class StationSystem {
     return null;
   }
 
+
+  /** Recompute distance_m from track geometry (after elevation remesh). */
+  refreshDistances(track: Track) {
+    for (const st of this.stations) {
+      st.distance_m = Math.round(track.nearestS(st.lon, st.lat));
+    }
+  }
+
   nearStation(s: number, radius = 80) {
     return this.stations.find((st) => Math.abs(st.distance_m - s) < radius) || null;
   }

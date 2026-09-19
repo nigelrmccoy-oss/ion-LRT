@@ -171,6 +171,12 @@ export class Game {
       };
     }
 
+    // Path length may change after elevation smooth/densify — refresh station chainage
+    for (const st of route.stations) {
+      if (typeof st.lat === 'number' && typeof st.lon === 'number') {
+        st.distance_m = Math.round(this.track.nearestS(st.lon, st.lat));
+      }
+    }
     this.stations.build(route.stations, this.track, this.elev);
     this.scene.add(this.stations.group);
 
@@ -353,10 +359,14 @@ export class Game {
     }
 
     this.physics.step(dt, sample.grade, sample.curvature);
-    this.s = THREE.MathUtils.clamp(this.s + this.physics.speed * dt, 0, this.track.length);
-    if (this.s <= 0 || this.s >= this.track.length) {
-      this.physics.speed = 0;
-    }
+    const ds = this.physics.speed * dt;
+    this.s = THREE.MathUtils.clamp(this.s + ds, 0, this.track.length);
+    // Only kill speed when driving *into* the bumper (past the end against the buffer).
+    // Allow forward departure from s≈0 (Conestoga); do not zero just because s is at the terminus.
+    if (this.s <= 0 && this.physics.speed < 0) this.physics.speed = 0;
+    if (this.s >= this.track.length && this.physics.speed > 0) this.physics.speed = 0;
+    if (!Number.isFinite(this.physics.speed)) this.physics.speed = 0;
+    if (!Number.isFinite(this.s)) this.s = 0;
 
     if (this.physics.speedKmh() > limit + 2) this.stats.overspeed += dt;
     if (this.physics.wheelslip) this.stats.wheelslip += dt;

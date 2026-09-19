@@ -408,6 +408,68 @@ async function main() {
     await c3();
   }
 
+
+  // --- k. Conestoga departure: s≈0, F, doors closed, dry, notch 8 → speed > 1 m/s in 5–10 s ---
+  {
+    const trackEntry = path.join(root, 'src/game/Track.ts');
+    const { mod: trackMod, cleanup: cTrack } = await bundleEntry(trackEntry, 'Track');
+    const { Track } = trackMod;
+    const elevMeta = JSON.parse(await readFile(path.join(root, 'public/data/elevation.json'), 'utf8'));
+    const gj = JSON.parse(await readFile(path.join(root, 'public/data/ion-track.geojson'), 'utf8'));
+    const coords = gj.features[0].geometry.coordinates;
+    const profile = elevMeta.track_profiles.ion;
+    const track = Track.fromLonLatProfile(coords, profile, 'ION LRT', 330, false);
+
+    // Grade sanity after smooth/clamp
+    let maxAbsG = 0;
+    for (const p of track.points) {
+      if (Math.abs(p.grade) > maxAbsG) maxAbsG = Math.abs(p.grade);
+    }
+    assert(
+      'k. max |grade| ≤ 5.5% after smooth/clamp',
+      maxAbsG <= 0.055,
+      `maxGrade=${(maxAbsG * 100).toFixed(2)}% len=${track.length.toFixed(0)}m pts=${track.points.length}`,
+    );
+
+    // Simulate Game terminus clamp + physics from Conestoga (s≈0)
+    const p = electric('dry');
+    p.reverser = 1;
+    p.doorsOpen = false;
+    p.powerNotch = 8;
+    p.brakeNotch = 0;
+    let s = 0; // Conestoga terminus
+    const dt = 1 / 30;
+    let tSim = 0;
+    while (tSim < 8) {
+      const sample = track.sample(s);
+      const grade = Number.isFinite(sample.grade) ? sample.grade : 0;
+      const curv = Number.isFinite(sample.curvature) ? sample.curvature : 0;
+      p.step(dt, grade, curv);
+      const ds = p.speed * dt;
+      s = Math.max(0, Math.min(track.length, s + ds));
+      // Fixed clamp: only zero when driving into bumper
+      if (s <= 0 && p.speed < 0) p.speed = 0;
+      if (s >= track.length && p.speed > 0) p.speed = 0;
+      if (!Number.isFinite(p.speed)) p.speed = 0;
+      tSim += dt;
+    }
+    assert(
+      'k. Conestoga departure speed > 1 m/s after 8s',
+      p.speed > 1 && Number.isFinite(p.speed),
+      `speed=${p.speed.toFixed(3)} m/s s=${s.toFixed(1)}m grade0=${(track.sample(0).grade * 100).toFixed(2)}%`,
+    );
+
+    // NaN harden: absurd non-finite grade must not NaN the consist
+    const p2 = electric('dry');
+    p2.reverser = 1;
+    p2.powerNotch = 8;
+    p2.step(1 / 30, Number.NaN, Number.POSITIVE_INFINITY);
+    assert('k. non-finite grade/curvature → finite speed', Number.isFinite(p2.speed));
+
+    await cTrack();
+  }
+
+
   const failed = results.filter((r) => !r.ok);
   console.log(`\n${results.length - failed.length}/${results.length} passed`);
   if (failed.length) {

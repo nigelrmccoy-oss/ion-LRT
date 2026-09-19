@@ -113,14 +113,21 @@ export class TerrainSystem {
    */
   buildRails(track: Track) {
     const g = new THREE.Group();
-    const pts = track.points;
     const isIon = track.name.includes('ION');
-    const step = 2;
-    for (let i = 0; i < pts.length - 1; i += step) {
-      const a = pts[i], b = pts[Math.min(pts.length - 1, i + step)];
+    // Densify by arc length after elevation smooth so Conestoga→Fairway looks continuous
+    const spacing = 3;
+    const samples: { x: number; y: number; z: number; s: number; heading: number }[] = [];
+    for (let s = 0; s < track.length; s += spacing) {
+      const p = track.sample(s);
+      samples.push({ x: p.x, y: p.y, z: p.z, s: p.s, heading: p.heading });
+    }
+    const end = track.sample(track.length);
+    samples.push({ x: end.x, y: end.y, z: end.z, s: end.s, heading: end.heading });
+    for (let i = 0; i < samples.length - 1; i++) {
+      const a = samples[i], b = samples[i + 1];
       const dx = b.x - a.x, dz = b.z - a.z, dy = b.y - a.y;
       const len = Math.hypot(dx, dy, dz);
-      if (len < 0.5) continue;
+      if (len < 0.4) continue;
       const mid = new THREE.Vector3((a.x + b.x) / 2, (a.y + b.y) / 2 - 0.15, (a.z + b.z) / 2);
       const street = isIon && this.row ? this.row.isStreetBand((a.s + b.s) / 2) : false;
 
