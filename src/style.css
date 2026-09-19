@@ -29,3 +29,18 @@ button:hover{filter:brightness(1.08)}
 
 #rowHud,#signalHud{font-size:.95rem}
 #signalVal{font-weight:700;letter-spacing:.04em}
+
+.check{display:flex;align-items:center;gap:.5rem;font-size:.85rem;margin:.6rem 0}
+.check input{width:auto;margin:0}
+#minimap{position:absolute;top:12px;right:12px;width:180px;height:140px;border-radius:8px;border:1px solid rgba(100,140,200,.5);z-index:5;pointer-events:none}
+#block{grid-column:1/-1;color:#ffb4a8;font-weight:600;font-size:.9rem}
+#ionHud,#vigVal{font-size:.9rem}
+#tutorial{position:absolute;z-index:8;inset:0;display:flex;align-items:flex-start;justify-content:center;padding-top:12vh;pointer-events:none;background:linear-gradient(180deg,rgba(0,0,0,.35),transparent 55%)}
+#tutorial.hidden{display:none!important}
+.tut-card{pointer-events:auto;width:min(420px,92vw);background:rgba(12,18,32,.94);border:1px solid #3a4a66;border-radius:12px;padding:1.1rem 1.25rem}
+.tut-kicker{font-size:.75rem;opacity:.7;margin-bottom:.35rem}
+.tut-card h2{font-size:1.15rem;margin-bottom:.4rem}
+.tut-card p{font-size:.9rem;opacity:.9;line-height:1.4}
+.tut-actions{display:flex;gap:.5rem;margin-top:.9rem}
+.tut-actions button{margin-top:0;flex:1}
+.tut-actions button.ghost{background:#1a2438;border:1px solid #3a4a66}

@@ -4,3 +4,6 @@ dist/
 *.log
 .vite/
 release/
+.env
+.env.*
+!.env.example

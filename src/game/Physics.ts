@@ -196,4 +196,15 @@ export class TrainPhysics {
   }
 
   speedKmh() { return Math.abs(this.speed) * 3.6; }
+
+  /** HUD / tutorial: why traction is cut (doors, N, vigilance, panto, voltage). */
+  powerBlockedReason(): string | null {
+    if (this.doorsOpen) return 'Doors open — close with T';
+    if (this.reverser === 0) return 'Reverser Neutral — press R for Forward';
+    if (!this.deadmanOk) return 'Vigilance penalty — notch W/S to reset';
+    if (this.electric && !this.pantographUp) return 'Pantograph down — press P';
+    if (this.electric && this.lineVoltage < 500) return 'Line voltage low';
+    return null;
+  }
 }
+

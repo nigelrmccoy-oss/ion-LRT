@@ -10,6 +10,10 @@ import { TerrainSystem } from './Terrain';
 import { StationSystem, type StationDef } from './Stations';
 import { RowClassifier } from './Row';
 import { SignalSystem, type SignalAspect } from './Signals';
+import { nextReverser, reverserLabel } from './reverser';
+import { CesiumIonImagery } from './CesiumIon';
+import { TutorialController } from './Tutorial';
+import { Minimap, etaSeconds, formatEta } from './Minimap';
 
 export type RouteKey = 'ion_southbound' | 'ion_northbound' | 'elmira' | 'guelph';
 
@@ -37,9 +41,12 @@ export class Game {
   stations = new StationSystem();
   row = new RowClassifier();
   signals = new SignalSystem();
+  ion = new CesiumIonImagery();
+  tutorial = new TutorialController();
+  minimap: Minimap | null = null;
   train!: THREE.Group;
   s = 0;
-  camMode: 0 | 1 | 2 = 0; // cab / chase / trackside
+  camMode: 0 | 1 | 2 = 0;
   clock = new THREE.Clock();
   simClock = 8 * 3600;
   weather: Weather = 'dry';
@@ -50,7 +57,6 @@ export class Game {
   running = false;
   private sun!: THREE.DirectionalLight;
   private hemi!: THREE.HemisphereLight;
-  private keyTimer = new Map<string, number>();
   private hud: Record<string, HTMLElement>;
   private onEnd: ((html: string) => void) | null = null;
   private weatherFx: WeatherFX | null = null;
@@ -83,6 +89,11 @@ export class Game {
     this.sun.shadow.camera.top = 80;
     this.sun.shadow.camera.bottom = -80;
     this.scene.add(this.sun);
+
+    const miniEl = document.getElementById('minimap') as HTMLCanvasElement | null;
+    if (miniEl) this.minimap = new Minimap(miniEl);
+    const app = document.getElementById('app');
+    if (app) this.tutorial.mount(app);
   }
 
   onResize() {
@@ -97,13 +108,13 @@ export class Game {
     weather: Weather;
     tod: 'day' | 'dusk' | 'night';
     onEnd: (html: string) => void;
+    runTutorial?: boolean;
   }) {
     this.onEnd = opts.onEnd;
     this.routeKey = opts.route;
     this.weather = opts.weather;
     this.finished = false;
     this.running = true;
-    // Clear previous world on restart
     if (this.terrain) this.scene.remove(this.terrain.group);
     this.scene.remove(this.stations.group);
     if (this.train) this.scene.remove(this.train);
@@ -113,12 +124,16 @@ export class Game {
     this.applyTod(opts.tod);
     this.setupWeather(opts.weather);
 
+    // Cesium Ion optional — never log the token
+    await this.ion.init();
+
     await this.elev.load();
     await this.row.load();
     await this.signals.load();
     this.signals.redViolations = 0;
 
     this.terrain = new TerrainSystem(this.elev);
+    this.terrain.setIonImagery(this.ion);
     await this.terrain.loadScenery();
     this.terrain.setRowClassifier(this.row);
     this.terrain.setSignalDefs(this.signals.signals);
@@ -130,11 +145,9 @@ export class Game {
     const stationsData = (await (await fetch('./data/stations.json')).json()) as StationsFile;
     const route = stationsData.routes[opts.route];
 
-    // Load all tracks for scenery visibility
     const ion = await Track.fromGeoJSON('./data/ion-track.geojson', this.elev, elevMeta.track_profiles.ion, 'ION LRT', false);
     const spur = await Track.fromGeoJSON('./data/waterloo-spur.geojson', this.elev, elevMeta.track_profiles.spur, 'Waterloo Spur', false);
     const guelph = await Track.fromGeoJSON('./data/guelph-sub.geojson', this.elev, elevMeta.track_profiles.guelph, 'Guelph Sub', false);
-    // Attach OSM ROW lookup to ION (both directions use same samples; reverse remaps s)
     ion.rowLookup = (s, near) => this.row.at(s, near, 0);
     this.allTracks = [ion, spur, guelph];
     for (const t of this.allTracks) this.terrain.buildRails(t);
@@ -150,7 +163,6 @@ export class Game {
     else if (trackFile.includes('guelph')) this.activeLineKey = 'guelph';
     else this.activeLineKey = 'ion';
 
-    // ROW lookup for active ION track (map reverse distance)
     if (this.activeLineKey === 'ion') {
       const ionLen = ion.length;
       this.track.rowLookup = (s, near) => {
@@ -170,21 +182,31 @@ export class Game {
       electric,
       axleFrac: electric ? AXLE_FRAC_FLEXITY : (dieselWcr ? AXLE_FRAC_WCR : AXLE_FRAC_CN),
     });
+    // Start Neutral (safe); R advances N→F→R. Doors closed, panto up, voltage OK.
     this.physics.reverser = 0;
+    this.physics.doorsOpen = false;
     this.physics.pantographUp = electric;
+    this.physics.lineVoltage = 750;
+    this.physics.resetVigilance();
 
     if (this.train) this.scene.remove(this.train);
     this.train = electric ? createFlexity() : createDieselConsist(opts.route === 'elmira' ? 'wcr' : 'cn');
     this.scene.add(this.train);
 
-    // Build signals / crossings visuals after elev ready
     this.terrain.buildTrafficSignals(this.activeLineKey === 'ion' ? ion : null);
     this.terrain.buildCrossings();
 
     const startSt = route.stations.find((s) => s.id === opts.startStationId) || route.stations[0];
     this.s = Math.min(this.track.length - 1, Math.max(0, startSt.distance_m));
     this.physics.speed = 0;
-    this.dwellUntil = this.clock.elapsedTime + 2;
+    // Short dwell; cleared early once reverser is Forward
+    this.dwellUntil = this.clock.elapsedTime + 0.75;
+
+    if (opts.runTutorial !== false && this.tutorial.shouldAutoStart()) {
+      this.tutorial.start();
+    } else {
+      this.tutorial.skip();
+    }
 
     this.clock.start();
     this.loop();
@@ -213,7 +235,6 @@ export class Game {
     }
   }
 
-
   private setupWeather(w: Weather) {
     if (this.weatherFx) {
       this.weatherFx.dispose();
@@ -227,33 +248,37 @@ export class Game {
     }
   }
 
-  private edge(code: string, interval = 0.2) {
-    if (!this.input.pressed(code)) return false;
-    const t = this.clock.elapsedTime;
-    const last = this.keyTimer.get(code) || 0;
-    if (t - last < interval) return false;
-    this.keyTimer.set(code, t);
-    return true;
+  private handleInput(_dt: number) {
+    const edgeKeys = ['KeyR', 'KeyT', 'KeyW', 'KeyS', 'ArrowUp', 'ArrowDown', 'Enter', 'Space', 'KeyP', 'KeyC'];
+    for (const code of edgeKeys) {
+      if (this.input.consumeEdge(code)) {
+        this.tutorial.onKey(code);
+        this.handleCabKey(code);
+      }
+    }
+    this.physics.sanding = this.input.pressed('ShiftLeft') || this.input.pressed('ShiftRight');
+    this.input.consumeLook();
   }
 
-  private handleInput(dt: number) {
-    if (this.edge('KeyW') || this.edge('ArrowUp')) {
+  private handleCabKey(code: string) {
+    if (code === 'KeyW' || code === 'ArrowUp') {
       this.physics.brakeNotch = 0;
       this.physics.powerNotch = Math.min(8, this.physics.powerNotch + 1);
       this.physics.resetVigilance();
       this.audio.ensure();
+      if (this.physics.reverser === 1) this.dwellUntil = 0;
     }
-    if (this.edge('KeyS') || this.edge('ArrowDown')) {
+    if (code === 'KeyS' || code === 'ArrowDown') {
       this.physics.powerNotch = 0;
       this.physics.brakeNotch = Math.min(8, this.physics.brakeNotch + 1);
       this.physics.resetVigilance();
     }
-    if (this.edge('KeyR')) {
-      const order: Array<-1 | 0 | 1> = [1, 0, -1];
-      const i = order.indexOf(this.physics.reverser);
-      this.physics.reverser = order[(i + 1) % 3];
+    if (code === 'KeyR') {
+      this.physics.reverser = nextReverser(this.physics.reverser);
+      this.physics.resetVigilance();
+      if (this.physics.reverser === 1) this.dwellUntil = 0;
     }
-    if (this.edge('KeyT')) {
+    if (code === 'KeyT') {
       if (Math.abs(this.physics.speed) < 0.3) {
         const opening = !this.physics.doorsOpen;
         this.physics.doorsOpen = opening;
@@ -264,21 +289,20 @@ export class Game {
           this.audio.doorClose();
         }
       }
+      this.physics.resetVigilance();
     }
-    if (this.edge('KeyP') && this.physics.electric) {
+    if (code === 'KeyP' && this.physics.electric) {
       this.physics.pantographUp = !this.physics.pantographUp;
       const pan = this.train.getObjectByName('pantograph');
       if (pan) pan.visible = this.physics.pantographUp;
+      this.physics.resetVigilance();
     }
-    this.physics.sanding = this.input.pressed('ShiftLeft') || this.input.pressed('ShiftRight');
-    if (this.edge('Space', 0.5)) this.audio.horn();
-    if (this.edge('KeyC', 0.3)) this.camMode = ((this.camMode + 1) % 3) as 0 | 1 | 2;
-    this.input.consumeLook();
+    if (code === 'Space') this.audio.horn();
+    if (code === 'KeyC') this.camMode = ((this.camMode + 1) % 3) as 0 | 1 | 2;
   }
 
   private ionForwardS(): number {
     if (this.activeLineKey !== 'ion') return this.s;
-    // northbound is reverse of baked southbound alignment
     if (this.routeKey === 'ion_northbound') return this.track.length - this.s;
     return this.s;
   }
@@ -295,12 +319,10 @@ export class Game {
     const limit = this.track.speedLimitKmh(this.s, !!near);
     const sample = this.track.sample(this.s);
 
-    // Traffic-signal enforcement (ION street sections)
     const dir: 1 | -1 =
       this.physics.reverser === 0
         ? (this.physics.speed >= 0 ? 1 : -1)
         : this.physics.reverser;
-    // For reverse ION, signal s_ion is on forward alignment — map train position
     const enforceS = this.activeLineKey === 'ion' ? this.ionForwardS() : this.s;
     const enforceDir: 1 | -1 =
       this.routeKey === 'ion_northbound' ? ((-dir) as 1 | -1) : dir;
@@ -319,14 +341,13 @@ export class Game {
     });
     this.stats.redLights = this.signals.redViolations;
 
-    // Soft hold on red: force brake / cut power when close
     if (enf.hold && inStreet) {
       this.physics.powerNotch = 0;
       this.physics.brakeNotch = Math.max(this.physics.brakeNotch, 6);
     }
 
-    // Auto-hold during dwell at start
-    if (this.clock.elapsedTime < this.dwellUntil) {
+    // Brief start dwell — cancel once Forward is selected
+    if (this.clock.elapsedTime < this.dwellUntil && this.physics.reverser !== 1) {
       this.physics.speed = 0;
       this.physics.powerNotch = 0;
     }
@@ -341,6 +362,7 @@ export class Game {
     if (this.physics.wheelslip) this.stats.wheelslip += dt;
     this.audio.setWheelslip(this.physics.wheelslip);
     this.audio.setMotor(this.physics.speed, this.physics.powerNotch);
+    this.audio.setCurveNoise(this.physics.speed, sample.curvature);
 
     const p = this.track.sample(this.s);
     this.train.position.set(p.x, p.y, p.z);
@@ -354,7 +376,6 @@ export class Game {
     this.sun.target.position.set(p.x, p.y, p.z);
     this.sun.target.updateMatrixWorld();
 
-    // Update signal lamp colours (nearby street signals)
     this.lastAspectById.clear();
     if (this.activeLineKey === 'ion') {
       for (const sig of this.signals.signals) {
@@ -372,7 +393,6 @@ export class Game {
     }
     this.terrain.updateSignalAspects((id) => this.lastAspectById.get(id) ?? null);
 
-    // Crossing gates on heavy-rail routes
     const activeX = new Set<number>();
     if (this.activeLineKey !== 'ion') {
       for (const c of this.signals.crossings) {
@@ -382,7 +402,7 @@ export class Game {
     this.terrain.updateCrossingGates(activeX, this.simClock);
 
     this.weatherFx?.update(dt, this.camera);
-    this.updateHud(limit, rowInfo, enf.aspect);
+    this.updateHud(limit, rowInfo, enf.aspect, p.heading);
     this.renderer.render(this.scene, this.camera);
 
     if (this.s > this.track.length - 8 && Math.abs(this.physics.speed) < 0.5) {
@@ -413,7 +433,7 @@ export class Game {
     }
   }
 
-  private updateHud(limit: number, row: string, aspect: SignalAspect | null) {
+  private updateHud(limit: number, row: string, aspect: SignalAspect | null, heading: number) {
     this.hud.speedVal.textContent = String(Math.round(this.physics.speedKmh()));
     this.hud.powerVal.textContent = String(this.physics.powerNotch);
     this.hud.brakeVal.textContent = String(this.physics.brakeNotch);
@@ -430,20 +450,42 @@ export class Game {
       this.hud.signalVal.textContent = aspect ? aspect.toUpperCase() : '—';
     }
     const next = this.stations.nextStation(this.s);
-    this.hud.nextStation.textContent = next ? `${next.name} (${Math.max(0, Math.round(next.distance_m - this.s))} m)` : 'End of line';
+    const distM = next ? Math.max(0, next.distance_m - this.s) : 0;
+    const eta = next ? etaSeconds(distM, this.physics.speed) : null;
+    this.hud.nextStation.textContent = next
+      ? `${next.name} · ${Math.round(distM)} m · ETA ${formatEta(eta)}`
+      : 'End of line';
     this.hud.doors.textContent = this.physics.doorsOpen ? 'Doors OPEN' : 'Doors closed';
     this.hud.panto.textContent = this.physics.electric ? (this.physics.pantographUp ? 'Panto up' : 'Panto down') : 'Diesel';
-    this.hud.reverser.textContent = this.physics.reverser > 0 ? 'F' : this.physics.reverser < 0 ? 'R' : 'N';
+    this.hud.reverser.textContent = reverserLabel(this.physics.reverser);
     this.hud.voltage.textContent = this.physics.electric ? `${this.physics.lineVoltage} V` : '—';
     this.hud.slip.className = 'lamp ' + (this.physics.wheelslip ? 'on' : 'off');
+    if (this.hud.blockVal) {
+      const reason = this.physics.powerBlockedReason();
+      this.hud.blockVal.textContent = reason || '';
+      this.hud.blockVal.parentElement?.classList.toggle('hidden', !reason);
+    }
+    if (this.hud.ionVal) this.hud.ionVal.textContent = this.ion.hudLabel();
+    if (this.hud.vigVal) {
+      const v = Math.max(0, Math.ceil(this.physics.vigilanceTimer));
+      this.hud.vigVal.textContent = this.physics.deadmanOk ? `Vig ${v}s` : 'VIG FAIL';
+    }
     const h = Math.floor(this.simClock / 3600) % 24;
     const m = Math.floor((this.simClock % 3600) / 60);
     const sec = Math.floor(this.simClock % 60);
-    this.hud.clock.textContent = `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`;
+    this.hud.clock.textContent = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
+
+    this.minimap?.draw({
+      track: this.track,
+      stations: this.stations.stations,
+      s: this.s,
+      heading,
+    });
   }
 
   stop() {
     this.running = false;
+    this.tutorial.skip();
     if (this.windshield) this.windshield.className = '';
   }
 
@@ -462,7 +504,7 @@ export class Game {
         <li>Time over speed limit: ${this.stats.overspeed.toFixed(1)} s</li>
         <li>Wheelslip time: ${this.stats.wheelslip.toFixed(1)} s</li>
         <li>Red-signal violations: ${this.stats.redLights}</li>
-        <li>Elapsed: ${(elapsed/60).toFixed(1)} min</li>
+        <li>Elapsed: ${(elapsed / 60).toFixed(1)} min</li>
       </ul>
       <button id="againBtn" type="button">Back to menu</button>`;
     this.onEnd?.(html);

@@ -3,6 +3,7 @@ import type { Elevation } from './elevation';
 import type { Track } from './Track';
 import type { RowClassifier } from './Row';
 import type { SignalDef, CrossingDef, SignalAspect } from './Signals';
+import type { CesiumIonImagery } from './CesiumIon';
 
 const CHUNK = 400; // metres
 
@@ -45,6 +46,7 @@ export class TerrainSystem {
   private amberMat = new THREE.MeshStandardMaterial({ color: 0xffaa00, emissive: 0x885500, emissiveIntensity: 0.9 });
   private greenMat = new THREE.MeshStandardMaterial({ color: 0x20ff40, emissive: 0x008820, emissiveIntensity: 0.9 });
   private offMat = new THREE.MeshStandardMaterial({ color: 0x221111, emissive: 0x000000, emissiveIntensity: 0 });
+  private ion: CesiumIonImagery | null = null;
 
   constructor(elev: Elevation) {
     this.elev = elev;
@@ -99,6 +101,11 @@ export class TerrainSystem {
   setCrossingDefs(xs: CrossingDef[]) {
     this.crossingDefs = xs;
   }
+
+  setIonImagery(ion: CesiumIonImagery | null) {
+    this.ion = ion;
+  }
+
 
   /**
    * Build rail mesh for a track. ION uses ROW class: reserved = ballast+fence+catenary;
@@ -360,10 +367,22 @@ export class TerrainSystem {
     pos.needsUpdate = true;
     geo.computeVertexNormals();
     geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-    const mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1 }));
+    const groundMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1 });
+    const mesh = new THREE.Mesh(geo, groundMat);
     mesh.position.set(x0 + CHUNK / 2, 0, z0 + CHUNK / 2);
     mesh.receiveShadow = true;
     g.add(mesh);
+    // Optional Cesium Ion aerial (fallback keeps vertex colours)
+    if (this.ion && this.ion.status === 'ready') {
+      const cx = x0 + CHUNK / 2, cz = z0 + CHUNK / 2;
+      void this.ion.textureForLocal(cx, cz, 16).then((tex) => {
+        if (!tex || !mesh.parent) return;
+        groundMat.map = tex;
+        groundMat.vertexColors = false;
+        groundMat.color.set(0xffffff);
+        groundMat.needsUpdate = true;
+      });
+    }
 
     // OSM road ribbons in this chunk
     const pad = 40;

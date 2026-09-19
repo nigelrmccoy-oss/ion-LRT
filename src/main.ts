@@ -9,6 +9,7 @@ const routeSel = document.getElementById('route') as HTMLSelectElement;
 const startSel = document.getElementById('startStation') as HTMLSelectElement;
 const weatherSel = document.getElementById('weather') as HTMLSelectElement;
 const todSel = document.getElementById('tod') as HTMLSelectElement;
+const tutorialOpt = document.getElementById('tutorialOpt') as HTMLInputElement;
 const startBtn = document.getElementById('startBtn') as HTMLButtonElement;
 
 const hud = {
@@ -26,6 +27,9 @@ const hud = {
   weather: document.getElementById('weatherVal')!,
   rowVal: document.getElementById('rowVal')!,
   signalVal: document.getElementById('signalVal')!,
+  blockVal: document.getElementById('blockVal')!,
+  ionVal: document.getElementById('ionVal')!,
+  vigVal: document.getElementById('vigVal')!,
 };
 
 let stationsData: any = null;
@@ -60,11 +64,16 @@ startBtn.addEventListener('click', async () => {
   menu.classList.add('hidden');
   endReport.classList.add('hidden');
   hudEl.classList.remove('hidden');
+  // Clear prior tutorial skip only when checkbox on? keep localStorage; checkbox forces start
+  if (tutorialOpt.checked) {
+    try { localStorage.removeItem('ion-lrt-tutorial-v13-done'); } catch { /* */ }
+  }
   await game.start({
     route: routeSel.value as RouteKey,
     startStationId: startSel.value,
     weather: weatherSel.value as Weather,
     tod: todSel.value as 'day' | 'dusk' | 'night',
+    runTutorial: tutorialOpt.checked,
     onEnd: (html) => {
       endReport.innerHTML = html;
       endReport.classList.remove('hidden');
@@ -72,10 +81,18 @@ startBtn.addEventListener('click', async () => {
       document.getElementById('againBtn')?.addEventListener('click', showMenu);
     },
   });
+  canvas.focus();
 });
 
 window.addEventListener('keydown', (e) => {
-  if (e.code === 'Escape') showMenu();
+  if (e.code !== 'Escape') return;
+  // First Esc: release pointer lock; second: menu
+  if (document.pointerLockElement) {
+    document.exitPointerLock();
+    e.preventDefault();
+    return;
+  }
+  showMenu();
 });
 
 initMenu().catch(console.error);

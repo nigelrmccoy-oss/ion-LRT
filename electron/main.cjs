@@ -1,5 +1,8 @@
-const { app, BrowserWindow } = require('electron');
+const { app, BrowserWindow, Menu } = require('electron');
 const path = require('path');
+
+// Prevent Alt/menu accelerators from eating cab keys (R, T, etc.)
+Menu.setApplicationMenu(null);
 
 function createWindow() {
   const win = new BrowserWindow({
@@ -15,6 +18,7 @@ function createWindow() {
       nodeIntegration: false,
     },
   });
+  win.setMenuBarVisibility(false);
   win.loadFile(path.join(__dirname, '..', 'dist', 'index.html'));
 }
 

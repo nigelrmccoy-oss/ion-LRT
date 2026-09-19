@@ -13,6 +13,7 @@ const root = path.resolve(__dirname, '..');
 const physicsEntry = path.join(root, 'src/game/Physics.ts');
 const rowEntry = path.join(root, 'src/game/Row.ts');
 const signalsEntry = path.join(root, 'src/game/Signals.ts');
+const reverserEntry = path.join(root, 'src/game/reverser.ts');
 
 const results = [];
 function pass(name, detail = '') {
@@ -271,7 +272,31 @@ async function main() {
 
   assert('helper adhesionMu dry/rain/snow', adhesionMu('dry', false) === 0.3 && adhesionMu('rain', false) === 0.15 && adhesionMu('snow', false) === 0.1);
 
+  // --- e2. powerBlockedReason ---
+  {
+    const p = electric('dry');
+    p.reverser = 0;
+    assert('e2. block reason Neutral', (p.powerBlockedReason() || '').includes('Neutral'));
+    p.reverser = 1;
+    p.doorsOpen = true;
+    assert('e2. block reason doors', (p.powerBlockedReason() || '').includes('Doors'));
+    p.doorsOpen = false;
+    assert('e2. unblocked when F + doors closed', p.powerBlockedReason() === null);
+  }
+
   await cleanup();
+
+  // --- e3. reverser N→F→R→N (P0 fix) ---
+  {
+    const { mod: revMod, cleanup: cRev } = await bundleEntry(reverserEntry, 'reverser');
+    const { nextReverser } = revMod;
+    assert('e3. N→F', nextReverser(0) === 1);
+    assert('e3. F→R', nextReverser(1) === -1);
+    assert('e3. R→N', nextReverser(-1) === 0);
+    assert('e3. two R from N is Reverse not stuck', nextReverser(nextReverser(0)) === -1);
+    await cRev();
+  }
+
 
   // --- i. ROW classifier samples: reserved 70 / street 40 / station 25 ---
   {
