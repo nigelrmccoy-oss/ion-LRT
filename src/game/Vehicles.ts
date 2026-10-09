@@ -197,6 +197,11 @@ export const DIESEL_DIMS = {
   noseTop: 2.9, noseZ1: 7.6,                            // short hood (below the eye line)
   frameTop: 1.45,
 };
+/** Coach behind the loco: gap after the long hood and body length (m). */
+export const DIESEL_COACH = { gap: 1.2, len: 16 };
+/** Consist extent around the chainage reference point: nose ahead, coach end behind (m). */
+export const DIESEL_CONSIST_FRONT_M = DIESEL_DIMS.noseZ1;
+export const DIESEL_CONSIST_REAR_M = -(DIESEL_DIMS.hoodZ0 - DIESEL_COACH.gap - DIESEL_COACH.len);
 /** Driver eye in the cab window: right-hand seat, above the short hood, behind the windscreen. */
 export const DIESEL_CAB_EYE = { x: -0.6, y: 3.55, z: 5.5 };
 
@@ -241,11 +246,11 @@ export function createDieselConsist(kind: 'wcr' | 'cn'): THREE.Group {
   panel(D.cabW, cabH, wallT, 0, D.frameTop + cabH / 2, D.cabZ0, bodyMat); // rear wall
   g.add(cab);
   const coach = new THREE.Mesh(
-    new THREE.BoxGeometry(2.9, 3.6, 16),
+    new THREE.BoxGeometry(2.9, 3.6, DIESEL_COACH.len),
     new THREE.MeshStandardMaterial({ color: 0xd8d0c4, metalness: 0.2, roughness: 0.7 }),
   );
   coach.name = 'coach';
-  coach.position.set(0, 2.0, D.hoodZ0 - 1.2 - 8);
+  coach.position.set(0, 2.0, D.hoodZ0 - DIESEL_COACH.gap - DIESEL_COACH.len / 2);
   g.add(coach);
   g.traverse((o) => {
     if ((o as THREE.Mesh).isMesh) (o as THREE.Mesh).castShadow = true;

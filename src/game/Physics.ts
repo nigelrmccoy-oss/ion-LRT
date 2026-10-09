@@ -43,6 +43,8 @@ export const HOLD_BRAKE_MS = 0.3;
 export const HOLD_BRAKE_DECEL = 1.5;
 /** Flexity Freedom minimum horizontal curve radius (Bombardier spec / Stage 2 ION EPR Table 4-2). */
 export const MIN_CURVE_RADIUS_M = 25;
+/** Vigilance (deadman) timer only runs above this speed (m/s ≈ 1.8 km/h) — ESTIMATE. */
+export const VIGILANCE_MIN_SPEED_MS = 0.5;
 
 export function adhesionMu(weather: Weather, sanding: boolean): number {
   let mu = weather === 'dry' ? 0.30 : weather === 'rain' ? 0.15 : 0.10;
@@ -273,8 +275,9 @@ export class TrainPhysics {
     if (this.brakeNotch >= 7 && Math.abs(this.speed) < 0.15) this.speed = 0;
     if (this.reverser === 0 && Math.abs(this.speed) < 0.2) this.speed = 0;
 
-    // Vigilance
-    this.vigilanceTimer -= dt;
+    // Vigilance: speed-dependent like real LRV/loco devices — it does not count down at
+    // a standstill (v1.4.1 penalised a 45 s station dwell with an emergency brake).
+    if (Math.abs(this.speed) > VIGILANCE_MIN_SPEED_MS) this.vigilanceTimer -= dt;
     if (notchP > 0 || this.brakeNotch > 0) this.vigilanceTimer = 45;
     if (this.vigilanceTimer <= 0) {
       this.deadmanOk = false;

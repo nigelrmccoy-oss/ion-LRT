@@ -937,6 +937,12 @@ async function main() {
 
   await cT141(); await cE141(); await cPL(); await cAR();
 
+  // ===== v1.4.2: end-to-end drive simulations + regressions (scripts/stress-drive.mjs) ======
+  {
+    const { driveTests } = await import('./stress-drive.mjs');
+    await driveTests(assert);
+  }
+
   const failed = results.filter((r) => !r.ok);
   console.log(`\n${results.length - failed.length}/${results.length} passed`);
   if (failed.length) {

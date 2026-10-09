@@ -495,16 +495,80 @@ export class Track {
     return this.curveLimitTab[i];
   }
 
-  /** Civil speed limit — OSM ROW (else curvature heuristic), capped by the curve restriction. */
-  speedLimitKmh(s: number, nearStation: boolean) {
+  /** Shortest posted speed-limit section (m): shorter steps are merged into the lower limit. */
+  static readonly MIN_POSTED_LIMIT_M = 20;
+  private postedTab: Float32Array | null = null;
+  private postedFor: unknown = undefined;
+
+  /** Line limit without the station override: OSM ROW (else line speed) ∧ curve limit. */
+  private baseLimitKmh(s: number): number {
     let lim: number;
     if (this.rowLookup) {
-      lim = this.rowLookup(s, nearStation).limitKmh;
+      lim = this.rowLookup(s, false).limitKmh;
     } else {
-      const p = this.sample(s);
-      lim = civilSpeedLimitKmh(nearStation, p.curvature, { ionStreetRunning: this.name.includes('ION') });
+      // Heavy rail (no ROW data): line speed only. Curves are handled by the smoothed TCRP
+      // curve limit — v1.4.1 also applied the raw per-vertex curvature heuristic here, which
+      // posted 1 m long 40 km/h "islands" at OSM vertex kinks on the Waterloo Spur / Guelph
+      // Sub (HUD flicker + overspeed bookings at line speed).
+      const ion = this.name.includes('ION');
+      lim = civilSpeedLimitKmh(false, ion ? this.sample(s).curvature : 0, { ionStreetRunning: ion });
     }
     return Math.min(lim, this.curveLimitKmh(s));
+  }
+
+  /**
+   * Posted limits like lineside boards: every section is at least MIN_POSTED_LIMIT_M long.
+   * Shorter steps (curve-limit staircases 70→50→40→30 over a few metres, ROW blips) are
+   * merged into the lower neighbouring limit, so posting only ever gets more restrictive.
+   */
+  private postedLimitKmh(s: number): number {
+    const st = Track.CURVE_TAB_STEP;
+    if (!this.postedTab || this.postedFor !== this.rowLookup) {
+      const n = Math.ceil(this.length / st) + 1;
+      const tab = new Float32Array(n);
+      for (let i = 0; i < n; i++) tab[i] = this.baseLimitKmh(Math.min(this.length, i * st));
+      const minRun = Math.ceil(Track.MIN_POSTED_LIMIT_M / st);
+      for (let pass = 0; pass < 50; pass++) {
+        let changed = false;
+        let i = 0;
+        while (i < n) {
+          let j = i;
+          while (j + 1 < n && tab[j + 1] === tab[i]) j++;
+          const len = j - i + 1;
+          if (len < minRun && (i > 0 || j < n - 1)) {
+            const left = i > 0 ? tab[i - 1] : Infinity, right = j < n - 1 ? tab[j + 1] : Infinity;
+            const to = Math.min(tab[i], left, right);
+            // a short run lower than both neighbours stays (it is the restriction itself) — it
+            // is widened instead by lowering the higher neighbour cells next to it
+            if (to === tab[i]) {
+              const grow = minRun - len;
+              let a = i, b = j;
+              for (let k = 0; k < grow; k++) {
+                if ((k % 2 === 0 && a > 0) || b >= n - 1) a = Math.max(0, a - 1); else b = Math.min(n - 1, b + 1);
+              }
+              for (let k = a; k <= b; k++) if (tab[k] > tab[i]) { tab[k] = tab[i]; changed = true; }
+            } else {
+              for (let k = i; k <= j; k++) tab[k] = to;
+              changed = true;
+            }
+          }
+          i = j + 1;
+        }
+        if (!changed) break;
+      }
+      this.postedTab = tab;
+      this.postedFor = this.rowLookup;
+    }
+    const i = Math.max(0, Math.min(this.postedTab.length - 1, Math.round(s / st)));
+    return this.postedTab[i];
+  }
+
+  /** Civil speed limit — posted line limit (OSM ROW / line speed ∧ curve limit), station 25. */
+  speedLimitKmh(s: number, nearStation: boolean) {
+    const posted = this.postedLimitKmh(s);
+    if (!nearStation) return posted;
+    const st = this.rowLookup ? this.rowLookup(s, true).limitKmh : civilSpeedLimitKmh(true, 0);
+    return Math.min(st, posted);
   }
 
   rowClassAt(s: number, nearStation: boolean): RowClass {

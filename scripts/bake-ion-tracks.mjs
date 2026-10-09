@@ -141,7 +141,9 @@ console.log(`SB ${sb.coords.length} pts ${sb.length.toFixed(0)} m; NB ${nb.coord
 // ---- platforms ------------------------------------------------------------------------
 const rawFile = path.join(__dirname, 'raw/overpass-platforms.json');
 if (process.env.REFETCH === '1' || !fs.existsSync(rawFile)) {
-  const q = '[out:json][timeout:60];(way["railway"="platform"](43.40,-80.56,43.51,-80.43);relation["railway"="platform"](43.40,-80.56,43.51,-80.43););out tags geom;';
+  // ION corridor + Waterloo Spur (Elmira) + Guelph Sub (Kitchener–Guelph)
+  const bb = '43.40,-80.57,43.61,-80.24';
+  const q = `[out:json][timeout:90];(way["railway"="platform"](${bb});relation["railway"="platform"](${bb}););out tags geom;`;
   const res = await fetch('https://overpass-api.de/api/interpreter', {
     method: 'POST',
     headers: { 'User-Agent': 'ion-LRT-sim-bake (github.com/nigelrmccoy-oss/ion-LRT)', 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -181,6 +183,18 @@ const PLATFORM_OF = {
     central: 'way/739451232', victoria: 'way/836238403', queen: 'way/836238402', market: 'way/466402907',
     borden: 'relation/16692801', mill: 'way/690922712', blockline: 'way/690921055', fairway: 'way/690921802',
   },
+  // Heavy rail (v1.4.2): v1.4.1 station points were 230–516 m off the line (Kitchener 353 m,
+  // St. Jacobs 344 m, Elmira stop at the end of the track ~1 km past the station).
+  elmira: {
+    northfield: 'way/829507386', // WCR "Waterloo" platform at Northfield Dr
+    farmersmarket: 'way/868483298',
+    stjacobs: 'way/868483297',
+  },
+  guelph: {
+    kitchener: 'way/137366391',
+    // guelph: Guelph Central platform way/357559553 lies ~300 m beyond the end of the baked
+    // guelph-sub.geojson line, so this stop stays at the end of the line (see STOP_NOTES).
+  },
   ion_northbound: {
     fairway: 'way/1369817041', blockline: 'way/690921055', mill: 'way/690922712', borden: 'relation/16692801',
     market: 'way/466402907', frederick: 'way/729743029', cityhall: 'way/825518269', central: 'way/739451234',
@@ -188,13 +202,37 @@ const PLATFORM_OF = {
     uw: 'way/1020715334', research: 'way/699821963', northfield: 'way/751178896', conestoga: 'way/744253497',
   },
 };
+// WCR stops at St. Jacobs Farmers' Market (OSM station node 8095268725 + platform).
+const EXTRA_STOPS = {
+  elmira: [{ id: 'farmersmarket', name: "Farmers' Market", lat: 43.510103, lon: -80.551188 }],
+};
+// OSM station nodes for stops without a platform outline.
+const STATION_NODE = {
+  elmira: { elmira: { osm: 'node/8095247814', lat: 43.589392, lon: -80.550736 } },
+};
+// Stops that cannot be placed on real OSM data (kept, but flagged in stations.json).
+const STOP_NOTES = {
+  guelph: {
+    breslau: 'No Breslau station in OSM (proposed GO stop); placed at the nearest point of the line.',
+    guelph: 'guelph-sub.geojson ends ~300 m short (west) of Guelph Central (OSM platform way/357559553); stop at the end of the line.',
+  },
+};
 const stFile = path.join(out, 'stations.json');
 const stationsJson = JSON.parse(fs.readFileSync(stFile, 'utf8'));
 const byOsm = new Map(platforms.map((p) => [p.osm, p]));
 for (const [routeKey, map] of Object.entries(PLATFORM_OF)) {
   const route = stationsJson.routes[routeKey];
-  route.track = routeKey === 'ion_southbound' ? 'ion-sb.geojson' : 'ion-nb.geojson';
+  if (routeKey.startsWith('ion_')) route.track = routeKey === 'ion_southbound' ? 'ion-sb.geojson' : 'ion-nb.geojson';
   route.reverse = false;
+  // stops that exist in OSM but were missing from the route
+  for (const add of EXTRA_STOPS[routeKey] ?? []) {
+    if (!route.stations.some((x) => x.id === add.id)) route.stations.push({ ...add });
+  }
+  // stations without an OSM platform: use the OSM station node
+  for (const st of route.stations) {
+    const node = STATION_NODE[routeKey]?.[st.id];
+    if (node) { st.lat = node.lat; st.lon = node.lon; st.osm_station = node.osm; }
+  }
   for (const st of route.stations) {
     const id = map[st.id];
     if (!id || !byOsm.has(id)) { delete st.platform_osm; continue; }
@@ -206,5 +244,33 @@ for (const [routeKey, map] of Object.entries(PLATFORM_OF)) {
     st.lat = +(ring.reduce((a, q) => a + q[1], 0) / ring.length).toFixed(6);
   }
 }
+// keep stops in line order (chainage on the route's own track)
+for (const [routeKey, route] of Object.entries(stationsJson.routes)) {
+  if (routeKey.startsWith('ion_')) continue;
+  const gjc = JSON.parse(fs.readFileSync(path.join(out, route.track), 'utf8')).features[0].geometry.coordinates.map(([lo, la]) => toLocal(lo, la));
+  const cum = [0];
+  for (let i = 1; i < gjc.length; i++) cum.push(cum[i - 1] + Math.hypot(gjc[i][0] - gjc[i - 1][0], gjc[i][1] - gjc[i - 1][1]));
+  const chain = (lon, lat) => {
+    const [x, z] = toLocal(lon, lat);
+    let best = Infinity, bs = 0;
+    for (let i = 0; i + 1 < gjc.length; i++) {
+      const [ax, az] = gjc[i], [bx, bz] = gjc[i + 1];
+      const L2 = (bx - ax) ** 2 + (bz - az) ** 2 || 1;
+      const t = Math.max(0, Math.min(1, ((x - ax) * (bx - ax) + (z - az) * (bz - az)) / L2));
+      const d = Math.hypot(ax + t * (bx - ax) - x, az + t * (bz - az) - z);
+      if (d < best) { best = d; bs = cum[i] + t * Math.sqrt(L2); }
+    }
+    return { s: bs, d: best };
+  };
+  for (const st of route.stations) {
+    const note = STOP_NOTES[routeKey]?.[st.id];
+    if (note) st.note = note; else delete st.note;
+    const c = chain(st.lon, st.lat);
+    st.distance_m = Math.round(c.s);
+    st.snap_err_m = Math.round(c.d);
+    delete st.snap_lon; delete st.snap_lat; delete st.trackIndex;
+  }
+  route.stations.sort((a, b) => a.distance_m - b.distance_m);
+}
 fs.writeFileSync(stFile, JSON.stringify(stationsJson, null, 2) + '\n');
-console.log('stations.json: ION platform_osm + platform-centroid stop points written');
+console.log('stations.json: ION + heavy-rail platform_osm + platform-centroid stop points written');

@@ -2,7 +2,7 @@
   "version": 0.6,
   "generator": "Overpass API 0.7.62.11 87bfad18",
   "osm3s": {
-    "timestamp_osm_base": "2026-10-09T02:08:20Z",
+    "timestamp_osm_base": "2026-10-09T02:58:00Z",
     "copyright": "The data included in this document is from www.openstreetmap.org. The data is made available under ODbL."
   },
   "elements": [
@@ -88,6 +88,67 @@
     "tactile_paving": "yes",
     "train": "yes",
     "wheelchair": "limited"
+  }
+},
+{
+  "type": "way",
+  "id": 357559553,
+  "bounds": {
+    "minlat": 43.5437765,
+    "minlon": -80.2472832,
+    "maxlat": 43.5460164,
+    "maxlon": -80.2448692
+  },
+  "geometry": [
+    { "lat": 43.5438003, "lon": -80.2472832 },
+    { "lat": 43.5437765, "lon": -80.2472463 },
+    { "lat": 43.5439755, "lon": -80.2470308 },
+    { "lat": 43.5443463, "lon": -80.2466327 },
+    { "lat": 43.5445601, "lon": -80.2464032 },
+    { "lat": 43.5452347, "lon": -80.2456791 },
+    { "lat": 43.5456322, "lon": -80.2452524 },
+    { "lat": 43.5460006, "lon": -80.2448692 },
+    { "lat": 43.5460164, "lon": -80.2449000 },
+    { "lat": 43.5458475, "lon": -80.2450791 },
+    { "lat": 43.5458395, "lon": -80.2451096 },
+    { "lat": 43.5455085, "lon": -80.2454643 },
+    { "lat": 43.5454283, "lon": -80.2455260 },
+    { "lat": 43.5452550, "lon": -80.2457127 },
+    { "lat": 43.5445810, "lon": -80.2464388 },
+    { "lat": 43.5445258, "lon": -80.2464983 },
+    { "lat": 43.5445002, "lon": -80.2465345 },
+    { "lat": 43.5444827, "lon": -80.2465720 },
+    { "lat": 43.5444730, "lon": -80.2466116 },
+    { "lat": 43.5444703, "lon": -80.2466411 },
+    { "lat": 43.5444699, "lon": -80.2466616 },
+    { "lat": 43.5444547, "lon": -80.2466777 },
+    { "lat": 43.5444499, "lon": -80.2466828 },
+    { "lat": 43.5443253, "lon": -80.2468208 },
+    { "lat": 43.5442303, "lon": -80.2469261 },
+    { "lat": 43.5441544, "lon": -80.2470103 },
+    { "lat": 43.5441638, "lon": -80.2470263 },
+    { "lat": 43.5441527, "lon": -80.2470394 },
+    { "lat": 43.5441415, "lon": -80.2470530 },
+    { "lat": 43.5441180, "lon": -80.2470077 },
+    { "lat": 43.5440643, "lon": -80.2470676 },
+    { "lat": 43.5440866, "lon": -80.2471075 },
+    { "lat": 43.5440431, "lon": -80.2471568 },
+    { "lat": 43.5439877, "lon": -80.2470760 },
+    { "lat": 43.5439808, "lon": -80.2470836 },
+    { "lat": 43.5438524, "lon": -80.2472256 },
+    { "lat": 43.5438003, "lon": -80.2472832 }
+  ],
+  "tags": {
+    "area": "yes",
+    "network": "VIA Rail;GO Transit",
+    "operator": "GO Transit",
+    "operator:wikidata": "Q1357727",
+    "operator:wikipedia": "en:GO Transit",
+    "owner": "Metrolinx",
+    "public_transport": "platform",
+    "railway": "platform",
+    "ref": "1",
+    "train": "yes"
   }
 },
 {
@@ -850,6 +911,30 @@
 },
 {
   "type": "way",
+  "id": 868483297,
+  "bounds": {
+    "minlat": 43.5373353,
+    "minlon": -80.5573960,
+    "maxlat": 43.5385583,
+    "maxlon": -80.5568655
+  },
+  "geometry": [
+    { "lat": 43.5373353, "lon": -80.5568655 },
+    { "lat": 43.5385583, "lon": -80.5573960 }
+  ],
+  "tags": {
+    "bench": "yes",
+    "bin": "yes",
+    "operator": "Waterloo Central Railway",
+    "operator:wikidata": "Q7974217",
+    "operator:wikipedia": "en:Waterloo Central Railway",
+    "owner": "Region of Waterloo",
+    "public_transport": "platform",
+    "railway": "platform"
+  }
+},
+{
+  "type": "way",
   "id": 868483298,
   "bounds": {
     "minlat": 43.5096414,
@@ -992,6 +1077,41 @@
     "surface": "concrete",
     "tactile_paving": "yes",
     "wheelchair": "yes"
+  }
+},
+{
+  "type": "way",
+  "id": 1459054819,
+  "bounds": {
+    "minlat": 43.5432647,
+    "minlon": -80.2476575,
+    "maxlat": 43.5459555,
+    "maxlon": -80.2447321
+  },
+  "geometry": [
+    { "lat": 43.5432901, "lon": -80.2476575 },
+    { "lat": 43.5436017, "lon": -80.2473078 },
+    { "lat": 43.5437826, "lon": -80.2471153 },
+    { "lat": 43.5459555, "lon": -80.2447814 },
+    { "lat": 43.5459366, "lon": -80.2447321 },
+    { "lat": 43.5451300, "lon": -80.2456155 },
+    { "lat": 43.5445743, "lon": -80.2461402 },
+    { "lat": 43.5443376, "lon": -80.2463789 },
+    { "lat": 43.5439356, "lon": -80.2468026 },
+    { "lat": 43.5439624, "lon": -80.2468565 },
+    { "lat": 43.5437614, "lon": -80.2470768 },
+    { "lat": 43.5437480, "lon": -80.2470571 },
+    { "lat": 43.5436633, "lon": -80.2471482 },
+    { "lat": 43.5434018, "lon": -80.2474494 },
+    { "lat": 43.5432647, "lon": -80.2476175 },
+    { "lat": 43.5432901, "lon": -80.2476575 }
+  ],
+  "tags": {
+    "access": "no",
+    "public_transport": "platform",
+    "railway": "platform",
+    "ref": "2",
+    "train": "yes"
   }
 },
 {

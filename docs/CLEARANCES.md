@@ -1,4 +1,4 @@
-# ION LRT Sim — Clearances & dimensions (v1.4.1)
+# ION LRT Sim — Clearances & dimensions (v1.4.2)
 
 All geometry constants live in [`src/game/Clearances.ts`](../src/game/Clearances.ts). This table lists each value, where it is used, and its public source.
 
@@ -96,6 +96,17 @@ No source in this file is invented. If a URL is listed, the value was read from 
 | Hold (standstill) brake | engages < 0.3 m/s (doors open / interlocked) or at standstill; 1.5 m/s² equivalent force; releases when TE in the selected direction exceeds the grade force and the doors are closed | ESTIMATE | Typical LRV hold-brake behaviour. Flexity Freedom values are not published |
 | Rail bed above DEM | 0.35 m | ESTIMATE | Sim value (ballast + tie + rail) |
 | Road sink under draped roads | 0.35 m | Sim rendering value | — |
+
+## Signals, limits and vigilance (v1.4.2)
+
+| Item | Value | Status | Source |
+|---|---|---|---|
+| Amber (yellow change) interval | Y = 1 s + v / (2·(b − g·G)), b = 1.0 m/s², v = posted approach limit, G = fall over the 100 m before the stop line; 4–9 s | Formula sourced, LRV brake value ESTIMATE | Kinematic yellow-change equation Y = t + V/(2a + 2Gg) from NCHRP Report 812, *Signal Timing Manual*, 2nd ed. (2015), with t = 1.0 s — https://nap.nationalacademies.org/catalog/22097/signal-timing-manual-second-edition . The manual uses a car deceleration a = 10 ft/s² (3.05 m/s²); the sim substitutes an LRV service-brake rate of 1.0 m/s² (ESTIMATE, not published for ION) |
+| Signal heads per intersection | heads ≤ 30 m apart along the line share one phase (max span 60 m) | Sim rule | OSM tags vehicle and pedestrian signal nodes separately |
+| Red-light violation | train crosses the stop line (first head in the direction of travel) on red | Sim rule | — |
+| TSP extension | +8 s green, granted only during green, held until the train clears the stop line | ESTIMATE | Typical TSP green-extension behaviour; ION TSP parameters are not published |
+| Minimum posted limit section | 20 m (shorter steps merged into the lower limit) | Sim rule | — |
+| Vigilance active above | 0.5 m/s (≈ 1.8 km/h), 45 s timeout | ESTIMATE | Typical speed-dependent vigilance devices; Flexity values not published |
 
 ## Not applied (and why)
 

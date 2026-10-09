@@ -8,7 +8,7 @@ import { AudioEngine } from './AudioEngine';
 import { createFlexityArticulated, createDieselConsist, type ArticulatedLRV } from './Vehicles';
 import { poseConsist, superelevationFor, buildCantProfile, type ConsistPose } from './Articulation';
 import { TRUCK_FROM_NOSE_M, LRV_LENGTH_M, LRV_FLOOR_ATR_M } from './Clearances';
-import { DIESEL_CAB_EYE } from './Vehicles';
+import { DIESEL_CAB_EYE, DIESEL_CONSIST_FRONT_M, DIESEL_CONSIST_REAR_M } from './Vehicles';
 import type { OsmPlatform } from './PlatformLayout';
 import { PhotorealTiles } from './PhotorealTiles';
 import { TerrainSystem } from './Terrain';
@@ -250,6 +250,9 @@ export class Game {
     this.scene.add(this.train);
 
     this.terrain.buildTrafficSignals([ionSb, ionNb]);
+    // enforce traffic signals along the line actually driven (not the reference chainage)
+    this.signals.setLine(this.activeLineKey === 'ion' ? this.track : null, 40,
+      (s) => this.track.speedLimitKmh(Math.max(0, Math.min(this.track.length, s)), false));
     this.terrain.buildCrossings({ ion, spur, guelph });
 
     // Photoreal scenery (optional): Google Photorealistic 3D Tiles through Cesium ion
@@ -389,9 +392,10 @@ export class Game {
 
   /** Chainage limits so the whole consist stays between the bumpers. */
   private sLimits(): [number, number] {
-    if (!this.lrv) return [0, this.track.length];
-    const ahead = TRUCK_FROM_NOSE_M[1];
-    const behind = LRV_LENGTH_M - ahead;
+    // v1.4.1 used [0, length] for the diesel: the coach hung 26 m off the start of the line
+    // and the nose 7.6 m past the end. Both consists now stay between the bumpers.
+    const ahead = this.lrv ? TRUCK_FROM_NOSE_M[1] : DIESEL_CONSIST_FRONT_M;
+    const behind = this.lrv ? LRV_LENGTH_M - ahead : DIESEL_CONSIST_REAR_M;
     return [Math.min(behind + 0.5, this.track.length / 2), Math.max(this.track.length / 2, this.track.length - ahead - 0.5)];
   }
 
@@ -483,19 +487,17 @@ export class Game {
       this.physics.reverser === 0
         ? (this.physics.speed >= 0 ? 1 : -1)
         : this.physics.reverser;
-    const enforceS = this.activeLineKey === 'ion' ? this.ionForwardS() : this.s;
-    const enforceDir: 1 | -1 =
-      this.routeKey === 'ion_northbound' ? ((-dir) as 1 | -1) : dir;
-
+    // ROW bands are keyed by the reference chainage; signals by the driven line (setLine)
+    const refSNow = this.ionForwardS();
     const inStreet =
       this.activeLineKey === 'ion' &&
-      (rowInfo === 'street' || (rowInfo === 'station' && this.row.isStreetBand(enforceS)));
+      (rowInfo === 'street' || (rowInfo === 'station' && this.row.isStreetBand(refSNow)));
 
     const enf = this.signals.updateEnforcement({
       tSec: this.simClock,
-      trainS: enforceS,
+      trainS: this.s,
       speedKmh: this.physics.speedKmh(),
-      direction: enforceDir,
+      direction: dir,
       inStreetRow: inStreet,
       dt,
     });
@@ -548,14 +550,14 @@ export class Game {
 
     this.lastAspectById.clear();
     if (this.activeLineKey === 'ion') {
-      for (const sig of this.signals.signals) {
-        if (Math.abs(sig.s_ion - enforceS) > 250) continue;
+      for (const sig of this.signals.lineSignals) {
+        if (Math.abs(sig.s_ion - this.s) > 250) continue;
         const asp = this.signals.aspectFor(
           sig,
           this.simClock,
-          enforceS,
+          this.s,
           this.physics.speedKmh(),
-          enforceDir || 1,
+          dir,
           0,
         );
         this.lastAspectById.set(sig.id, asp);

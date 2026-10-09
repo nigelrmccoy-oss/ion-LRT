@@ -1,10 +1,24 @@
-# ION LRT Simulator **v1.4.1**
+# ION LRT Simulator **v1.4.2**
 
 Playable browser / Electron cab simulator of the Waterloo Region **ION LRT** (GrandLinq / Keolis / GRT tribute), plus the **CN Waterloo Spur / WCR to Elmira** and **Kitchener–Guelph** heavy-rail routes.
 
 Built with **Vite + TypeScript + Three.js**. No Blender/Unity. No backend.
 
-## What’s new in v1.4.1 (QA fixes)
+## What’s new in v1.4.2 (end-to-end drive simulations)
+
+`npm test` now drives every route end to end, headless: ION SB, ION NB, WCR to Elmira and Kitchener–Guelph, each in both directions, in dry, rain and snow (24 runs). The Flexity runs the ION routes and the diesel runs the heavy-rail routes. A simple automatic driver obeys the posted limits (ROW, curve and station), traffic signals and grades. It stops at every platform, works the doors with the hold brake, and handles wheelslip with sanding. Results are in [`docs/DRIVE-SIM-RESULTS.md`](docs/DRIVE-SIM-RESULTS.md) (`node scripts/drive-sim.mjs --write`). The runs exposed these bugs, now fixed:
+
+- **Red-light bookings at intersections entered on green**: every OSM signal node had its own phase, so heads 5–10 m apart at one intersection disagreed. Heads are now grouped into intersections that share a phase.
+- **Red-light rule**: a violation is now booked only when the train crosses the stop line on red. Before, any red within ±18 m counted, even after the train had already passed. The next stop line is no longer hidden by the one just passed.
+- **TSP**: a granted green extension is now held until the train clears the stop line. Before, it was withdrawn when the train sped up past 25 km/h, which cut the light to amber or red. An extension can also no longer turn an amber back to green.
+- **Amber interval**: it is now sized for an LRV, from the approach speed and the downhill grade (ITE kinematic formula with a 1.0 m/s² brake). The fixed 4 s amber made red bookings unavoidable at 40 km/h on the King St descent.
+- **Signal distances on couplets and curves**: signals are now enforced along the line actually driven. Distances measured on the reference centreline stalled and then jumped, so a stop line looked 33 m away for 4 s.
+- **Speed limits**: limits are now posted like lineside boards, with no section shorter than 20 m. Before, heavy rail had 1 m long 40 km/h "islands" at OSM vertex kinks, and curve limits stepped in a 70→50→40→30 staircase every few metres.
+- **Vigilance**: the timer only runs while moving. A 45 s station dwell used to trigger the penalty brake.
+- **Diesel consist**: the coach no longer hangs 26 m off the start of the line, and the nose no longer sticks 7.6 m past the end.
+- **Heavy-rail stations from OSM**: Kitchener was 353 m off, St. Jacobs 344 m, and the Elmira stop sat at the end of the track about 1 km past the station. The WCR Farmers' Market stop is added. Breslau (not in OSM) and Guelph (the line data ends about 300 m short of Guelph Central) are flagged in `stations.json`.
+
+## What was new in v1.4.1 (QA fixes)
 
 - **P0 reversed elevation**: `Track.fromGeoJSON(..., reverse)` now reverses the stored height profile along with the vertices. v1.4.0 put Conestoga's heights at Fairway on the reversed route. Every route is checked against the DEM in both directions (`npm test` section o).
 - **Real directional ION tracks**: southbound and northbound now run on their own OSM lines (`public/data/ion-sb.geojson`, `ion-nb.geojson`, baked by `scripts/bake-ion-tracks.mjs` from the direction-tagged OSM ways). Northbound no longer runs on the southbound rails. Both lines are rendered with their own ballast, rails and contact wire. Where they run side by side, NB rail height is blended onto SB so the double track shares one formation.
@@ -133,7 +147,8 @@ ION: articulated 5-module Flexity Freedom (30.8 m × 2.65 m × 3.6 m, Bo′2Bo�
 ## Tests & build
 
 ```bash
-npm test     # 119 headless checks: physics, ROW, signals, articulation, terrain corridor, both-direction elevation, platforms, hold brake, curve limits, roads
+npm test     # 183 headless checks incl. 24 end-to-end drive simulations (4 routes × 2 directions × dry/rain/snow)
+node scripts/drive-sim.mjs --write   # drive sims only; writes docs/DRIVE-SIM-RESULTS.md
 npm run build
 node scripts/bake-ion-tracks.mjs   # re-bake ION SB/NB lines + OSM platforms (Overpass; raw response cached in scripts/raw/)
 ```

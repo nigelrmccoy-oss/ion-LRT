@@ -515,35 +515,38 @@
         {
           "id": "northfield",
           "name": "Northfield",
-          "lat": 43.49736,
-          "lon": -80.5433,
-          "trackIndex": 2,
-          "distance_m": 43,
-          "snap_lon": -80.54343714999999,
-          "snap_lat": 43.49741055,
-          "snap_err_m": 12
+          "lat": 43.498577,
+          "lon": -80.544018,
+          "distance_m": 181,
+          "snap_err_m": 5,
+          "platform_osm": "way/829507386"
+        },
+        {
+          "id": "farmersmarket",
+          "name": "Farmers' Market",
+          "lat": 43.509835,
+          "lon": -80.551034,
+          "platform_osm": "way/868483298",
+          "distance_m": 1557,
+          "snap_err_m": 6
         },
         {
           "id": "stjacobs",
           "name": "St. Jacobs",
-          "lat": 43.5405,
-          "lon": -80.5538,
-          "trackIndex": 233,
-          "distance_m": 4949,
-          "snap_lon": -80.55790403333333,
-          "snap_lat": 43.539646366666666,
-          "snap_err_m": 344
+          "lat": 43.537947,
+          "lon": -80.557131,
+          "distance_m": 4756,
+          "snap_err_m": 3,
+          "platform_osm": "way/868483297"
         },
         {
           "id": "elmira",
           "name": "Elmira",
-          "lat": 43.5985,
-          "lon": -80.5555,
-          "trackIndex": 523,
-          "distance_m": 11612,
-          "snap_lon": -80.5523074,
-          "snap_lat": 43.5983294,
-          "snap_err_m": 258
+          "lat": 43.589392,
+          "lon": -80.550736,
+          "distance_m": 10623,
+          "snap_err_m": 2,
+          "osm_station": "node/8095247814"
         }
       ]
     },
@@ -557,35 +560,29 @@
         {
           "id": "kitchener",
           "name": "Kitchener",
-          "lat": 43.4556,
-          "lon": -80.4985,
-          "trackIndex": 0,
-          "distance_m": 0,
-          "snap_lon": -80.4941317,
-          "snap_lat": 43.4554229,
-          "snap_err_m": 353
+          "lat": 43.45595,
+          "lon": -80.492375,
+          "distance_m": 153,
+          "snap_err_m": 6,
+          "platform_osm": "way/137366391"
         },
         {
           "id": "breslau",
           "name": "Breslau",
           "lat": 43.4748,
           "lon": -80.4165,
-          "trackIndex": 283,
-          "distance_m": 6675,
-          "snap_lon": -80.41831511428572,
-          "snap_lat": 43.47925092857143,
-          "snap_err_m": 516
+          "distance_m": 6679,
+          "snap_err_m": 517,
+          "note": "No Breslau station in OSM (proposed GO stop); placed at the nearest point of the line."
         },
         {
           "id": "guelph",
           "name": "Guelph",
-          "lat": 43.5445,
-          "lon": -80.2495,
-          "trackIndex": 947,
-          "distance_m": 22066,
-          "snap_lon": -80.2489582,
-          "snap_lat": 43.542467,
-          "snap_err_m": 230
+          "lat": 43.54456,
+          "lon": -80.246497,
+          "distance_m": 22105,
+          "snap_err_m": 306,
+          "note": "guelph-sub.geojson ends ~300 m short (west) of Guelph Central (OSM platform way/357559553); stop at the end of the line."
         }
       ]
     }
