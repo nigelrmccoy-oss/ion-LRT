@@ -35,6 +35,11 @@ export const SPEED_LIMITS_KMH = {
 
 export type RowClass = keyof typeof SPEED_LIMITS_KMH;
 
+/** Below this |v| (m/s) the car is treated as standing (static friction logic). */
+export const STANDSTILL_MS = 0.05;
+/** Flexity Freedom minimum horizontal curve radius (Bombardier spec / Stage 2 ION EPR Table 4-2). */
+export const MIN_CURVE_RADIUS_M = 25;
+
 export function adhesionMu(weather: Weather, sanding: boolean): number {
   let mu = weather === 'dry' ? 0.30 : weather === 'rain' ? 0.15 : 0.10;
   if (sanding) mu = Math.min(0.35, mu + 0.08);
@@ -130,11 +135,27 @@ export class TrainPhysics {
     return this.massKg * 9.81 * grade;
   }
 
+  /**
+   * Curve resistance (N). AREMA-style 0.8 lb/short-ton per degree of curve
+   * (≈0.4 N/kN per degree, chord-100 ft definition D = 1746.4 / R[m]).
+   * v1.3 used `mass·g·(600/R)·0.05`, which was ~40× too large (165 kN at R=100 m,
+   * 331 kN at R≤50 m — far above the 62 kN starting TE) and stalled the LRV on any
+   * densified-polyline kink (e.g. near Northfield / Block Line).
+   */
   curveResistance(curvature: number) {
-    // empirical N ≈ mass * g * (600/R_m) style — curvature is 1/R
-    if (curvature < 1e-5) return 0;
-    const R = 1 / Math.abs(curvature);
-    return this.massKg * 9.81 * (600 / Math.max(R, 50)) * 0.001 * 50; // scaled
+    const k = Math.abs(curvature);
+    if (!Number.isFinite(k) || k < 1e-5) return 0;
+    const R = Math.max(MIN_CURVE_RADIUS_M, 1 / k);
+    const degrees = 1746.4 / R;
+    const nPerKn = 0.4 * degrees;
+    return (this.massKg * 9.81 / 1000) * nPerKn;
+  }
+
+  /** Speed-dependent available adhesion (Curtius–Kniffler shape, normalised to 1 at standstill). */
+  adhesionAt(speedMs: number) {
+    const vk = Math.abs(speedMs) * 3.6;
+    const ck = (7.5 / (vk + 44) + 0.161) / (7.5 / 44 + 0.161);
+    return this.baseMu() * ck;
   }
 
   step(dt: number, grade: number, curvature: number) {
@@ -146,32 +167,55 @@ export class TrainPhysics {
     const canPower = !this.doorsOpen && this.reverser !== 0 && this.deadmanOk;
     const notchP = canPower ? this.powerNotch : 0;
     const demandTE = (notchP / 8) * this.maxTE(Math.abs(this.speed));
-    // Powered-axle adhesion weight (not full consist mass)
-    const axleLoad = this.massKg * 9.81 * this.axleFrac;
-    const maxAdhesion = this.baseMu() * axleLoad;
+    // Powered-axle adhesion weight (not full consist mass), normal force on grade
+    const axleLoad = this.massKg * 9.81 * this.axleFrac * Math.cos(Math.atan(grade));
+    const maxAdhesion = this.adhesionAt(this.speed) * axleLoad;
 
-    // Brakes: blended regen + friction, up to ~1.2 m/s² — also limited by adhesion
+    // Brakes: blended regen + friction, up to ~1.15 m/s² — also limited by adhesion
+    // (brake adhesion uses all axles: friction brakes on the trailer truck too)
     const demandBrake = (this.brakeNotch / 8) * this.massKg * 1.15;
+    const brakeAdhesion = this.adhesionAt(this.speed) * this.massKg * 9.81;
 
-    const teSlip = demandTE > maxAdhesion && notchP > 0;
-    const brakeSlip = demandBrake > maxAdhesion && this.brakeNotch > 0;
+    const teSlip = notchP > 0 && demandTE > maxAdhesion;
+    const brakeSlip = this.brakeNotch > 0 && Math.abs(this.speed) > 0.05 && demandBrake > brakeAdhesion;
     this.wheelslip = teSlip || brakeSlip;
 
     let te = Math.min(demandTE, maxAdhesion);
-    if (teSlip) te *= 0.35; // reduced accel while slipping
+    if (teSlip) te *= 0.35; // reduced accel while slipping (no anti-slip recovery modelled)
 
-    let Fbrake = Math.min(demandBrake, maxAdhesion);
+    let Fbrake = Math.min(demandBrake, brakeAdhesion);
     if (brakeSlip) Fbrake *= 0.35; // reduced braking while sliding
 
-    const resist = this.davisResistance(this.speed) + Math.abs(this.curveResistance(curvature));
+    const resist = this.davisResistance(this.speed) + this.curveResistance(curvature);
     const Fgrade = this.gradeForce(grade);
-
     const dir = this.reverser === 0 ? 0 : this.reverser;
-    let F = dir * te - Math.sign(this.speed || dir) * (Fbrake + resist) - Fgrade;
-    if (Math.abs(this.speed) < 0.05 && this.brakeNotch > 0) F = -Fgrade * 0.2; // hold
 
-    const a = F / this.massKg;
-    this.speed += a * dt;
+    let a: number;
+    if (Math.abs(this.speed) < STANDSTILL_MS) {
+      // Static case: rolling/curve resistance and brakes are reaction forces — they can
+      // hold the car but never push it backwards (v1.3 applied them with sign(dir),
+      // which made the car jitter ±0.3 m/s and "creep" when TE < resistance).
+      const applied = dir * te - Fgrade;
+      const holding = resist + Fbrake;
+      if (Math.abs(applied) <= holding) {
+        this.speed = 0;
+        a = 0;
+      } else {
+        a = (applied - Math.sign(applied) * holding) / this.massKg;
+        this.speed += a * dt;
+      }
+    } else {
+      const sv = Math.sign(this.speed);
+      const F = dir * te - sv * (Fbrake + resist) - Fgrade;
+      a = F / this.massKg;
+      const next = this.speed + a * dt;
+      // Resistive forces may stop the car but not reverse it within one step
+      if (Math.sign(next) !== sv && Math.abs(dir * te - Fgrade) <= Fbrake + resist) {
+        this.speed = 0;
+      } else {
+        this.speed = next;
+      }
+    }
     if (!Number.isFinite(this.speed)) this.speed = 0;
 
     // Vehicle max speed cap (after integrate)

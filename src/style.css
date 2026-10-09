@@ -16,7 +16,7 @@ button:hover{filter:brightness(1.08)}
 #notches,#next,#status,#limit,#clock{font-size:.95rem}
 #clock{text-align:right}
 .lamp{display:inline-block;padding:.1rem .4rem;border-radius:4px;margin-left:.4rem;font-weight:700;font-size:.75rem}
-.lamp.off{background:#333;color:#777}
+.lamp.off{background:#2a2a2a;color:#555;opacity:.45}
 .lamp.on{background:#c62828;color:#fff;animation:blink .5s infinite}
 @keyframes blink{50%{opacity:.4}}
 .hidden{display:none!important}
@@ -44,3 +44,8 @@ button:hover{filter:brightness(1.08)}
 .tut-actions{display:flex;gap:.5rem;margin-top:.9rem}
 .tut-actions button{margin-top:0;flex:1}
 .tut-actions button.ghost{background:#1a2438;border:1px solid #3a4a66}
+
+#photorealCredits{position:fixed;left:8px;bottom:6px;z-index:30;display:flex;align-items:center;gap:6px;max-width:70vw;padding:2px 6px;border-radius:4px;background:rgba(0,0,0,.45);color:#eee;font:11px/1.3 system-ui,sans-serif;pointer-events:none}
+#photorealCredits.hidden{display:none}
+#photorealCredits .credit-logo{height:16px;width:auto}
+#photorealCredits .credit-sep{margin-left:14px;opacity:.8}

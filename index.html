@@ -3,13 +3,13 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>ION LRT Simulator v1.3 — Waterloo Region</title>
+    <title>ION LRT Simulator v1.4 — Waterloo Region</title>
     <link rel="stylesheet" href="/src/style.css" />
   </head>
   <body>
     <div id="app">
       <div id="menu" class="panel">
-        <h1>ION LRT Simulator <span class="ver">v1.3</span></h1>
+        <h1>ION LRT Simulator <span class="ver">v1.4</span></h1>
         <p class="sub">Waterloo Region · GrandLinq / Keolis / GRT tribute · browser cab sim</p>
         <label>Route
           <select id="route">
@@ -37,6 +37,8 @@
           </select>
         </label>
         <label class="check"><input type="checkbox" id="tutorialOpt" checked /> Show controls tutorial</label>
+        <label class="check" id="photorealLabel"><input type="checkbox" id="photorealOpt" /> Photoreal 3D scenery (Google 3D Tiles via Cesium ion)</label>
+        <p class="sub" id="photorealNote"></p>
         <button id="startBtn" type="button">Start run</button>
         <div class="help">
           <strong>Depart checklist</strong>
@@ -71,6 +73,7 @@
       </div>
       <div id="endReport" class="panel hidden"></div>
       <div id="windshield"></div>
+      <div id="photorealCredits" class="hidden" aria-label="Map data attribution"></div>
       <canvas id="c"></canvas>
     </div>
     <script type="module" src="/src/main.ts"></script>

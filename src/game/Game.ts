@@ -5,7 +5,10 @@ import { TrainPhysics, type Weather, MASS_FLEXITY_KG, MASS_WCR_KG, MASS_CN_KG, A
 import { WeatherFX } from './WeatherFX';
 import { Input } from './Input';
 import { AudioEngine } from './AudioEngine';
-import { createFlexity, createDieselConsist } from './Vehicles';
+import { createFlexityArticulated, createDieselConsist, type ArticulatedLRV } from './Vehicles';
+import { poseConsist, superelevationFor, type ConsistPose } from './Articulation';
+import { TRUCK_FROM_NOSE_M, LRV_LENGTH_M, LRV_FLOOR_ATR_M } from './Clearances';
+import { PhotorealTiles } from './PhotorealTiles';
 import { TerrainSystem } from './Terrain';
 import { StationSystem, type StationDef } from './Stations';
 import { RowClassifier } from './Row';
@@ -45,6 +48,12 @@ export class Game {
   tutorial = new TutorialController();
   minimap: Minimap | null = null;
   train!: THREE.Group;
+  /** Articulated Flexity (null for diesel consists). */
+  lrv: ArticulatedLRV | null = null;
+  pose: ConsistPose | null = null;
+  photoreal = new PhotorealTiles();
+  private camQ = new THREE.Quaternion();
+  private tmpE = new THREE.Euler();
   s = 0;
   camMode: 0 | 1 | 2 = 0;
   clock = new THREE.Clock();
@@ -109,6 +118,8 @@ export class Game {
     tod: 'day' | 'dusk' | 'night';
     onEnd: (html: string) => void;
     runTutorial?: boolean;
+    /** Try Google Photorealistic 3D Tiles via Cesium ion (needs token; falls back to OSM). */
+    photoreal?: boolean;
   }) {
     this.onEnd = opts.onEnd;
     this.routeKey = opts.route;
@@ -150,6 +161,8 @@ export class Game {
     const guelph = await Track.fromGeoJSON('./data/guelph-sub.geojson', this.elev, elevMeta.track_profiles.guelph, 'Guelph Sub', false);
     ion.rowLookup = (s, near) => this.row.at(s, near, 0);
     this.allTracks = [ion, spur, guelph];
+    // Cut/fill corridors first so the heightfield is corrected before any mesh is draped
+    this.terrain.setCorridors(this.allTracks);
     for (const t of this.allTracks) this.terrain.buildRails(t);
 
     const reverse = !!route.reverse;
@@ -177,7 +190,11 @@ export class Game {
         st.distance_m = Math.round(this.track.nearestS(st.lon, st.lat));
       }
     }
-    this.stations.build(route.stations, this.track, this.elev);
+    this.stations.build(route.stations, this.track, this.elev, {
+      reverse,
+      heavyRail: !trackFile.includes('ion'),
+      groundAt: (x, z) => this.terrain.ground.exactHeight(x, z),
+    });
     this.scene.add(this.stations.group);
 
     const electric = route.vehicle === 'flexity';
@@ -196,14 +213,35 @@ export class Game {
     this.physics.resetVigilance();
 
     if (this.train) this.scene.remove(this.train);
-    this.train = electric ? createFlexity() : createDieselConsist(opts.route === 'elmira' ? 'wcr' : 'cn');
+    if (electric) {
+      this.lrv = createFlexityArticulated();
+      this.train = this.lrv.group;
+    } else {
+      this.lrv = null;
+      this.train = createDieselConsist(opts.route === 'elmira' ? 'wcr' : 'cn');
+    }
     this.scene.add(this.train);
 
     this.terrain.buildTrafficSignals(this.activeLineKey === 'ion' ? ion : null);
-    this.terrain.buildCrossings();
+    this.terrain.buildCrossings({ ion, spur, guelph });
+
+    // Photoreal scenery (optional): Google Photorealistic 3D Tiles through Cesium ion
+    this.scene.remove(this.photoreal.root);
+    this.photoreal.dispose();
+    this.terrain.setPhotorealMode(false);
+    this.photoreal.onFailure = () => this.terrain.setPhotorealMode(false);
+    if (opts.photoreal) {
+      const ok = await this.photoreal.init(this.camera, this.renderer, this.elev.baseElev);
+      if (ok) {
+        this.scene.add(this.photoreal.root);
+        this.terrain.setPhotorealMode(true);
+      }
+    }
+    this.photoreal.showAttribution(!!opts.photoreal);
 
     const startSt = route.stations.find((s) => s.id === opts.startStationId) || route.stations[0];
-    this.s = Math.min(this.track.length - 1, Math.max(0, startSt.distance_m));
+    // s = chainage of the centre (trailer) truck; keep both noses on the rails
+    this.s = this.clampS(startSt.distance_m);
     this.physics.speed = 0;
     // Short dwell; cleared early once reverser is Forward
     this.dwellUntil = this.clock.elapsedTime + 0.75;
@@ -307,6 +345,49 @@ export class Game {
     if (code === 'KeyC') this.camMode = ((this.camMode + 1) % 3) as 0 | 1 | 2;
   }
 
+  /** Chainage limits so the whole consist stays between the bumpers. */
+  private sLimits(): [number, number] {
+    if (!this.lrv) return [0, this.track.length];
+    const ahead = TRUCK_FROM_NOSE_M[1];
+    const behind = LRV_LENGTH_M - ahead;
+    return [Math.min(behind + 0.5, this.track.length / 2), Math.max(this.track.length / 2, this.track.length - ahead - 0.5)];
+  }
+
+  private clampS(s: number) {
+    const [lo, hi] = this.sLimits();
+    return Math.min(hi, Math.max(lo, s));
+  }
+
+  private cantAt = (s: number): number => {
+    const p = this.track.sample(Math.max(0, Math.min(this.track.length, s)));
+    const near = !!this.stations.nearStation(s, 60);
+    const row = this.track.rowClassAt(Math.max(0, Math.min(this.track.length, s)), near);
+    const v = this.track.speedLimitKmh(Math.max(0, Math.min(this.track.length, s)), near) / 3.6;
+    return superelevationFor(p.curvSigned ?? 0, v, row === 'reserved' || this.activeLineKey !== 'ion');
+  };
+
+  /** Place every articulated module / truck from the track spline. */
+  private placeConsist() {
+    if (!this.lrv) return null;
+    const pose = poseConsist(this.track, this.s, 1, this.cantAt);
+    this.pose = pose;
+    pose.modules.forEach((m, i) => {
+      const g = this.lrv!.modules[i];
+      g.position.set(m.pos.x, m.pos.y, m.pos.z);
+      g.rotation.order = 'YXZ';
+      g.rotation.set(-m.pitch, m.yaw, -m.roll);
+    });
+    pose.trucks.forEach((t, i) => {
+      const g = this.lrv!.trucks[i];
+      g.position.set(t.pos.x, t.pos.y, t.pos.z);
+      g.rotation.set(0, t.yaw, 0);
+    });
+    // Pantograph head follows the local contact-wire height (ION only)
+    const shoe = this.lrv.modules[2].getObjectByName('pantoShoe');
+    if (shoe && this.activeLineKey === 'ion') shoe.position.y = this.terrain.wireHeightAt(this.ionForwardS());
+    return pose;
+  }
+
   private ionForwardS(): number {
     if (this.activeLineKey !== 'ion') return this.s;
     if (this.routeKey === 'ion_northbound') return this.track.length - this.s;
@@ -360,11 +441,12 @@ export class Game {
 
     this.physics.step(dt, sample.grade, sample.curvature);
     const ds = this.physics.speed * dt;
-    this.s = THREE.MathUtils.clamp(this.s + ds, 0, this.track.length);
+    const [sLo, sHi] = this.sLimits();
+    this.s = THREE.MathUtils.clamp(this.s + ds, sLo, sHi);
     // Only kill speed when driving *into* the bumper (past the end against the buffer).
-    // Allow forward departure from s≈0 (Conestoga); do not zero just because s is at the terminus.
-    if (this.s <= 0 && this.physics.speed < 0) this.physics.speed = 0;
-    if (this.s >= this.track.length && this.physics.speed > 0) this.physics.speed = 0;
+    // Allow forward departure from the terminus; do not zero just because s is at the limit.
+    if (this.s <= sLo && this.physics.speed < 0) this.physics.speed = 0;
+    if (this.s >= sHi && this.physics.speed > 0) this.physics.speed = 0;
     if (!Number.isFinite(this.physics.speed)) this.physics.speed = 0;
     if (!Number.isFinite(this.s)) this.s = 0;
 
@@ -375,12 +457,17 @@ export class Game {
     this.audio.setCurveNoise(this.physics.speed, sample.curvature);
 
     const p = this.track.sample(this.s);
-    this.train.position.set(p.x, p.y, p.z);
-    this.train.rotation.order = 'YXZ';
-    this.train.rotation.y = p.heading + (this.physics.reverser < 0 ? Math.PI : 0);
-    this.train.rotation.x = -Math.atan(p.grade);
+    if (this.lrv) {
+      this.placeConsist();
+    } else {
+      this.train.position.set(p.x, p.y, p.z);
+      this.train.rotation.order = 'YXZ';
+      this.train.rotation.y = p.heading + (this.physics.reverser < 0 ? Math.PI : 0);
+      this.train.rotation.x = -Math.atan(p.grade);
+    }
 
     this.updateCamera(p);
+    this.photoreal.update(this.camera, this.renderer, p);
     this.terrain.update(p.x, p.z, this.allTracks);
     this.sun.position.set(p.x + 60, p.y + 100, p.z + 30);
     this.sun.target.position.set(p.x, p.y, p.z);
@@ -415,12 +502,36 @@ export class Game {
     this.updateHud(limit, rowInfo, enf.aspect, p.heading);
     this.renderer.render(this.scene, this.camera);
 
-    if (this.s > this.track.length - 8 && Math.abs(this.physics.speed) < 0.5) {
+    if (this.s > this.sLimits()[1] - 8 && Math.abs(this.physics.speed) < 0.5) {
       this.finish();
     }
   };
 
   private updateCamera(p: { x: number; y: number; z: number; heading: number }) {
+    if (this.lrv && this.pose) {
+      const lead = this.pose.modules[0];
+      const leadObj = this.lrv.modules[0];
+      if (this.camMode === 0) {
+        // Driver's eye in cab A: ~1.6 m behind the nose, seated eye ≈ floor + 1.9 m
+        const eye = new THREE.Vector3(0.35, LRV_FLOOR_ATR_M + 1.9, lead.len / 2 - 1.6);
+        leadObj.updateMatrixWorld();
+        this.camera.position.copy(eye.applyMatrix4(leadObj.matrixWorld));
+        this.tmpE.set(this.input.lookPitch, Math.PI + this.input.lookYaw, 0, 'YXZ');
+        this.camQ.setFromEuler(this.tmpE);
+        this.camera.quaternion.copy(leadObj.quaternion).multiply(this.camQ);
+      } else if (this.camMode === 1) {
+        // Chase cam: follows the lead module from behind/above
+        const fx = lead.fwd.x, fz = lead.fwd.z;
+        this.camera.position.set(lead.pos.x - fx * 26, lead.pos.y + 8, lead.pos.z - fz * 26);
+        this.camera.lookAt(lead.pos.x + fx * 6, lead.pos.y + 2, lead.pos.z + fz * 6);
+      } else {
+        const mid = this.pose.modules[2];
+        const fx = mid.fwd.x, fz = mid.fwd.z;
+        this.camera.position.set(mid.pos.x - fz * 18, mid.pos.y + 4, mid.pos.z + fx * 18);
+        this.camera.lookAt(mid.pos.x, mid.pos.y + 2, mid.pos.z);
+      }
+      return;
+    }
     const cabHeight = this.physics.electric ? 2.4 : 3.2;
     const cabForward = this.physics.electric ? -14.5 : -7.5;
     if (this.camMode === 0) {
@@ -475,7 +586,11 @@ export class Game {
       this.hud.blockVal.textContent = reason || '';
       this.hud.blockVal.parentElement?.classList.toggle('hidden', !reason);
     }
-    if (this.hud.ionVal) this.hud.ionVal.textContent = this.ion.hudLabel();
+    if (this.hud.ionVal) {
+      const st = this.photoreal.status;
+      this.hud.ionVal.textContent =
+        st === 'ready' || st === 'loading' ? 'Google 3D Tiles' : st === 'error' ? 'OSM (3D tiles failed)' : this.ion.hudLabel();
+    }
     if (this.hud.vigVal) {
       const v = Math.max(0, Math.ceil(this.physics.vigilanceTimer));
       this.hud.vigVal.textContent = this.physics.deadmanOk ? `Vig ${v}s` : 'VIG FAIL';
@@ -495,6 +610,7 @@ export class Game {
 
   stop() {
     this.running = false;
+    this.photoreal.showAttribution(false);
     this.tutorial.skip();
     if (this.windshield) this.windshield.className = '';
   }

@@ -4,8 +4,56 @@ import type { Track } from './Track';
 import type { RowClassifier } from './Row';
 import type { SignalDef, CrossingDef, SignalAspect } from './Signals';
 import type { CesiumIonImagery } from './CesiumIon';
+import { GroundModel, GRID_M, SLOPE_REACH_M, type CorridorTrack } from './Ground';
+import {
+  BALLAST_TOP_HALF_WIDTH_M,
+  FORMATION_DEPTH_M,
+  LRT_TRACK_CENTRES_M,
+  OCS_WIRE_HEIGHT_RESERVED_M,
+  OCS_WIRE_HEIGHT_STREET_M,
+  OCS_POLE_OFFSET_M,
+  OCS_POLE_SPACING_M,
+  FREIGHT_SIDE_CLEARANCE_M,
+  RAIL_CENTRES_M,
+  RAIL_TOP_ABOVE_TRACK_Y_M,
+  envelopeHalfWidth,
+} from './Clearances';
 
 const CHUNK = 400; // metres
+const SEGS = CHUNK / GRID_M; // terrain vertices every GRID_M (5 m)
+
+/** Shared polygon-offset settings: draped layers win depth ties against the terrain mesh. */
+function offsetMat<T extends THREE.Material>(m: T, factor: number, units: number): T {
+  m.polygonOffset = true;
+  m.polygonOffsetFactor = factor;
+  m.polygonOffsetUnits = units;
+  return m;
+}
+
+type Poly = { ring: number[][]; minX: number; maxX: number; minZ: number; maxZ: number; color: [number, number, number] };
+
+function pointInRing(x: number, z: number, ring: number[][]): boolean {
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const xi = ring[i][0], zi = ring[i][1], xj = ring[j][0], zj = ring[j][1];
+    if ((zi > z) !== (zj > z) && x < ((xj - xi) * (z - zi)) / (zj - zi + 1e-12) + xi) inside = !inside;
+  }
+  return inside;
+}
+
+const LAND_COLORS: Record<string, [number, number, number]> = {
+  residential: [0.77, 0.72, 0.63],
+  commercial: [0.69, 0.63, 0.56],
+  industrial: [0.54, 0.53, 0.5],
+  retail: [0.82, 0.77, 0.69],
+  education: [0.61, 0.73, 0.54],
+  university: [0.56, 0.72, 0.48],
+  campus: [0.56, 0.72, 0.48],
+  grass: [0.42, 0.6, 0.29],
+  forest: [0.24, 0.42, 0.2],
+  park: [0.35, 0.6, 0.29],
+  default: [0.43, 0.55, 0.32],
+};
 
 export class TerrainSystem {
   group = new THREE.Group();
@@ -47,10 +95,44 @@ export class TerrainSystem {
   private greenMat = new THREE.MeshStandardMaterial({ color: 0x20ff40, emissive: 0x008820, emissiveIntensity: 0.9 });
   private offMat = new THREE.MeshStandardMaterial({ color: 0x221111, emissive: 0x000000, emissiveIntensity: 0 });
   private ion: CesiumIonImagery | null = null;
+  /** Corrected heightfield (DEM + track cut/fill corridor). */
+  ground: GroundModel;
+  private polys: Poly[] = [];
+  private corridorMat = offsetMat(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1 }), -1, -2);
+  private roadMat = offsetMat(new THREE.MeshStandardMaterial({ color: 0x2a2a2e, roughness: 0.95, metalness: 0.05 }), -2, -4);
+  private deckMat = new THREE.MeshStandardMaterial({ color: 0x9a9890, roughness: 0.9 });
+  private ribbonGroup = new THREE.Group();
+  private sceneryGroups: THREE.Object3D[] = [];
+  private photoreal = false;
+  /** Contact-wire height lookup per ION chainage (for pantograph). */
+  wireHeightAt: (s: number) => number = () => OCS_WIRE_HEIGHT_STREET_M;
 
   constructor(elev: Elevation) {
     this.elev = elev;
+    this.ground = new GroundModel(elev);
     this.group.add(this.worldExtras);
+    this.group.add(this.ribbonGroup);
+  }
+
+  /**
+   * Register track corridors before building rails / chunks. ION gets the street flag
+   * from the OSM ROW classifier and a second (visual) track on reserved sections.
+   */
+  setCorridors(tracks: Track[]) {
+    for (const t of tracks) {
+      const isIon = t.name.includes('ION');
+      this.ground.addTrack(t, {
+        isStreet: isIon && this.row ? (s) => this.row!.isStreetBand(s) : undefined,
+        parallelLeftM: isIon && this.row ? (s) => (this.row!.isStreetBand(s) ? 0 : LRT_TRACK_CENTRES_M) : undefined,
+      });
+    }
+  }
+
+  /** Photoreal 3D tiles replace the OSM ground/buildings; rails, OCS and stations stay. */
+  setPhotorealMode(on: boolean) {
+    this.photoreal = on;
+    for (const c of this.chunks.values()) c.visible = !on;
+    this.ribbonGroup.visible = !on;
   }
 
   /** Cheap wet-ground look: lower roughness / slight metalness when raining. */
@@ -70,6 +152,11 @@ export class TerrainSystem {
     this.asphaltMat.roughness = wet ? 0.4 : 0.95;
     this.asphaltMat.metalness = wet ? 0.2 : 0.05;
     this.asphaltMat.needsUpdate = true;
+    this.roadMat.roughness = wet ? 0.4 : 0.95;
+    this.roadMat.metalness = wet ? 0.2 : 0.05;
+    this.roadMat.needsUpdate = true;
+    this.corridorMat.roughness = wet ? 0.5 : 1;
+    this.corridorMat.needsUpdate = true;
   }
 
   async loadScenery() {
@@ -77,6 +164,22 @@ export class TerrainSystem {
       this.scenery = await (await fetch('./data/scenery.json')).json();
     } catch {
       this.scenery = null;
+    }
+    this.polys = [];
+    if (this.scenery) {
+      const add = (ring: number[][], color: [number, number, number]) => {
+        if (!ring || ring.length < 3) return;
+        let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+        for (const [x, z] of ring) {
+          if (x < minX) minX = x; if (x > maxX) maxX = x;
+          if (z < minZ) minZ = z; if (z > maxZ) maxZ = z;
+        }
+        this.polys.push({ ring, minX, maxX, minZ, maxZ, color });
+      };
+      // painting order = priority (later wins): landuse < parks < water
+      for (const p of this.scenery.landuse || []) add(p.ring, LAND_COLORS[p.kind] || LAND_COLORS.default);
+      for (const p of this.scenery.parks || []) add(p.ring, LAND_COLORS[p.kind] || LAND_COLORS.park);
+      for (const p of this.scenery.water || []) add(p.ring, [0.23, 0.43, 0.65]);
     }
     try {
       const roadsGj = await (await fetch('./data/roads.geojson')).json();
@@ -107,97 +210,237 @@ export class TerrainSystem {
   }
 
 
+  private corridorFor(track: Track): CorridorTrack | null {
+    return this.ground.tracks.find((c) => c.track === track) || null;
+  }
+
   /**
-   * Build rail mesh for a track. ION uses ROW class: reserved = ballast+fence+catenary;
-   * street = embedded rails in asphalt, no rural fence.
+   * Corridor ribbon (formation + cut/fill slopes, draped on the corrected heightfield),
+   * ballast prism / embedded slab, rails, bridges and — for ION — OCS + second track.
+   * Call setCorridors() first.
    */
   buildRails(track: Track) {
     const g = new THREE.Group();
     const isIon = track.name.includes('ION');
-    // Densify by arc length after elevation smooth so Conestoga→Fairway looks continuous
-    const spacing = 3;
-    const samples: { x: number; y: number; z: number; s: number; heading: number }[] = [];
-    for (let s = 0; s < track.length; s += spacing) {
-      const p = track.sample(s);
-      samples.push({ x: p.x, y: p.y, z: p.z, s: p.s, heading: p.heading });
+    const cor = this.corridorFor(track);
+    if (!cor) {
+      this.ground.addTrack(track);
     }
-    const end = track.sample(track.length);
-    samples.push({ x: end.x, y: end.y, z: end.z, s: end.s, heading: end.heading });
-    for (let i = 0; i < samples.length - 1; i++) {
-      const a = samples[i], b = samples[i + 1];
-      const dx = b.x - a.x, dz = b.z - a.z, dy = b.y - a.y;
-      const len = Math.hypot(dx, dy, dz);
-      if (len < 0.4) continue;
-      const mid = new THREE.Vector3((a.x + b.x) / 2, (a.y + b.y) / 2 - 0.15, (a.z + b.z) / 2);
-      const street = isIon && this.row ? this.row.isStreetBand((a.s + b.s) / 2) : false;
+    const corridor = this.corridorFor(track)!;
+    const smp = corridor.samples;
+    const street = (i: number) => smp[i].street;
+    const parallel = (i: number) => smp[i].left - smp[i].right; // >0 → second track on left
 
-      if (street) {
-        // Embedded rails in asphalt ribbon
-        const bed = new THREE.Mesh(new THREE.BoxGeometry(3.6, 0.12, len), this.embeddedMat);
-        bed.position.copy(mid);
-        bed.position.y += 0.02;
-        bed.lookAt(b.x, b.y - 0.15, b.z);
-        g.add(bed);
-      } else {
-        const ballast = new THREE.Mesh(new THREE.BoxGeometry(3.2, 0.25, len), this.ballastMat);
-        ballast.position.copy(mid);
-        ballast.lookAt(b.x, b.y - 0.15, b.z);
-        g.add(ballast);
+    // ---- 1. corridor ribbon (skips bridge spans) -------------------------------------
+    const ribbonOffsets = (i: number) => {
+      const c = smp[i];
+      const L = c.left, R = c.right;
+      const outs = [0, 1.5, 3.5, 6, 9, 13, SLOPE_REACH_M];
+      const left = outs.map((o) => L + o);
+      const right = outs.map((o) => -(R + o)).reverse();
+      const mid: number[] = [];
+      for (const v of [-R + 0.01, -BALLAST_TOP_HALF_WIDTH_M, 0, BALLAST_TOP_HALF_WIDTH_M, L - 0.01]) {
+        if (v > -R && v < L) mid.push(v);
       }
-      for (const side of [-0.72, 0.72]) {
-        const rail = new THREE.Mesh(
-          new THREE.BoxGeometry(0.12, street ? 0.08 : 0.18, len),
-          this.railMat,
-        );
-        const hx = dx / len, hz = dz / len;
-        const px = -hz * side, pz = hx * side;
-        rail.position.set(mid.x + px, mid.y + (street ? 0.08 : 0.15), mid.z + pz);
-        rail.lookAt(b.x + px, b.y, b.z + pz);
-        g.add(rail);
+      return [...right, ...mid, ...left];
+    };
+    const flushRibbon = (from: number, to: number) => {
+      if (to - from < 1) return;
+      const cols = ribbonOffsets(from).length;
+      const pos: number[] = [], col: number[] = [], idx: number[] = [];
+      for (let i = from; i <= to; i++) {
+        const c = smp[i];
+        const offs = ribbonOffsets(i);
+        const lx = c.fz, lz = -c.fx;
+        for (let k = 0; k < cols; k++) {
+          const o = offs[k] ?? offs[offs.length - 1];
+          const x = c.x + lx * o, z = c.z + lz * o;
+          const inFlat = o > -c.right && o < c.left;
+          const h = inFlat ? c.form : this.ground.exactHeight(x, z);
+          pos.push(x, h, z);
+          let r = 0.42, gg = 0.55, b = 0.3; // grass slope
+          if (inFlat) {
+            if (c.street) { r = 0.36; gg = 0.36; b = 0.37; } // asphalt / embedded concrete
+            else { r = 0.45; gg = 0.42; b = 0.38; } // gravel shoulder
+          } else if (Math.abs(h - c.form) < 0.05) { r = 0.45; gg = 0.5; b = 0.33; }
+          col.push(r, gg, b);
+        }
+      }
+      for (let i = 0; i < to - from; i++) {
+        for (let k = 0; k < cols - 1; k++) {
+          const a0 = i * cols + k, a1 = a0 + 1, b0 = a0 + cols, b1 = b0 + 1;
+          idx.push(a0, b0, a1, a1, b0, b1);
+        }
+      }
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+      geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+      geo.setIndex(idx);
+      geo.computeVertexNormals();
+      const mesh = new THREE.Mesh(geo, this.corridorMat);
+      mesh.receiveShadow = true;
+      this.ribbonGroup.add(mesh);
+    };
+    {
+      let start = -1;
+      const CHUNK_SAMPLES = 100;
+      for (let i = 0; i < smp.length; i++) {
+        const ok = !smp[i].bridge && (i === 0 || street(i) === street(i - 1)) && (i === 0 || parallel(i) === parallel(i - 1));
+        if (start < 0) { if (!smp[i].bridge) start = i; continue; }
+        if (!ok || i - start >= CHUNK_SAMPLES) {
+          flushRibbon(start, smp[i].bridge ? i - 1 : i);
+          start = smp[i].bridge ? -1 : i;
+        }
+      }
+      if (start >= 0) flushRibbon(start, smp.length - 1);
+    }
+
+    // ---- 2. ballast prism (continuous strip) + rails ------------------------------------
+    const railTop = RAIL_TOP_ABOVE_TRACK_Y_M;
+    const lines: number[] = [0];
+    if (isIon) lines.push(LRT_TRACK_CENTRES_M); // second (visual) track, left side
+    for (const lineOff of lines) {
+      const bpos: number[] = [], bidx: number[] = [];
+      let run = 0;
+      const rails: number[][] = [[], []];
+      for (let i = 0; i < smp.length; i++) {
+        const c = smp[i];
+        const has = lineOff === 0 || parallel(i) > 0;
+        const lx = c.fz, lz = -c.fx;
+        const cx = c.x + lx * lineOff, cz = c.z + lz * lineOff;
+        if (!has) { run = 0; rails[0].push(NaN, NaN, NaN); rails[1].push(NaN, NaN, NaN); continue; }
+        if (!c.street) {
+          const topY = c.y - 0.03, botY = c.bridge ? c.y - 0.3 : c.form + 0.02;
+          const hwTop = BALLAST_TOP_HALF_WIDTH_M, hwBot = hwTop + (topY - botY) * 1.5;
+          for (const [o, y] of [[-hwBot, botY], [-hwTop, topY], [hwTop, topY], [hwBot, botY]] as [number, number][]) {
+            bpos.push(cx + lx * o, y, cz + lz * o);
+          }
+          const base = bpos.length / 3 - 4;
+          if (run > 0) {
+            const p0 = base - 4;
+            for (let k = 0; k < 3; k++) bidx.push(p0 + k, base + k, p0 + k + 1, p0 + k + 1, base + k, base + k + 1);
+          }
+          run++;
+        } else run = 0;
+        for (let side = 0; side < 2; side++) {
+          const o = (side === 0 ? -1 : 1) * RAIL_CENTRES_M / 2;
+          rails[side].push(cx + lx * o, c.y + railTop, cz + lz * o);
+        }
+      }
+      if (bidx.length) {
+        const bg = new THREE.BufferGeometry();
+        bg.setAttribute('position', new THREE.Float32BufferAttribute(bpos, 3));
+        bg.setIndex(bidx);
+        bg.computeVertexNormals();
+        const bm = new THREE.Mesh(bg, this.ballastMat);
+        bm.receiveShadow = true;
+        g.add(bm);
+      }
+      // Rails as thin strips (head 7 cm wide, web drops to tie level)
+      for (const r of rails) {
+        const pos: number[] = [], idx: number[] = [];
+        let prev = -1;
+        for (let i = 0; i + 2 < r.length; i += 3) {
+          const x = r[i], y = r[i + 1], z = r[i + 2];
+          if (!Number.isFinite(x)) { prev = -1; continue; }
+          const c = smp[Math.floor(i / 3)] ?? smp[smp.length - 1];
+          const lx = c.fz * 0.035, lz = -c.fx * 0.035;
+          pos.push(x - lx, y, z - lz, x + lx, y, z + lz, x - lx, y - 0.16, z - lz, x + lx, y - 0.16, z + lz);
+          const cur = pos.length / 3 - 4;
+          if (prev >= 0) {
+            idx.push(prev, cur, prev + 1, prev + 1, cur, cur + 1); // head
+            idx.push(prev + 2, cur + 2, prev, prev, cur + 2, cur); // left web
+            idx.push(prev + 1, cur + 1, prev + 3, prev + 3, cur + 1, cur + 3); // right web
+          }
+          prev = cur;
+        }
+        if (!idx.length) continue;
+        const rg = new THREE.BufferGeometry();
+        rg.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+        rg.setIndex(idx);
+        rg.computeVertexNormals();
+        const rm = new THREE.Mesh(rg, this.railMat);
+        g.add(rm);
       }
     }
 
+    // ---- 3. bridges / viaducts where the rail is well above terrain -----------------------
+    for (let i = 0; i < smp.length - 1; i++) {
+      const c = smp[i], n = smp[i + 1];
+      if (!c.bridge || !n.bridge) continue;
+      const w = c.left + c.right;
+      const mid = new THREE.Vector3((c.x + n.x) / 2, (c.y + n.y) / 2 - FORMATION_DEPTH_M + 0.05, (c.z + n.z) / 2);
+      const len = Math.hypot(n.x - c.x, n.z - c.z) + 0.05;
+      const deck = new THREE.Mesh(new THREE.BoxGeometry(w, 0.8, len), this.deckMat);
+      const off = (c.left - c.right) / 2;
+      deck.position.set(mid.x + c.fz * off, mid.y - 0.4, mid.z - c.fx * off);
+      deck.rotation.y = Math.atan2(c.fx, c.fz);
+      g.add(deck);
+      if (Math.round(c.s) % 24 < corridor.step) {
+        const ground = this.elev.heightAtLocal(c.x, c.z);
+        const h = c.form - 0.8 - ground;
+        if (h > 0.5) {
+          const pier = new THREE.Mesh(new THREE.BoxGeometry(w * 0.6, h, 1.2), this.deckMat);
+          pier.position.set(c.x + c.fz * off, ground + h / 2, c.z - c.fx * off);
+          pier.rotation.y = deck.rotation.y;
+          g.add(pier);
+        }
+      }
+    }
+
+    // ---- 4. ION overhead contact system ---------------------------------------------------
     if (isIon) {
-      for (let s = 0; s < track.length; s += 50) {
+      const wireH = (s: number) =>
+        (this.row && this.row.isStreetBand(s)) ? OCS_WIRE_HEIGHT_STREET_M : OCS_WIRE_HEIGHT_RESERVED_M;
+      this.wireHeightAt = wireH;
+      const wirePts: number[][] = [[], []];
+      for (let s = 0; s <= track.length; s += 10) {
         const p = track.sample(s);
-        const street = this.row ? this.row.isStreetBand(s) : false;
-        // Catenary everywhere ION (street + reserved)
-        const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.15, 7.5, 6), this.railMat);
-        const side = street ? 2.8 : 3.2;
-        const hx = Math.sin(p.heading), hz = Math.cos(p.heading);
-        pole.position.set(p.x - hz * side, p.y + 3.5, p.z + hx * side);
+        const lx = Math.cos(p.heading), lz = -Math.sin(p.heading);
+        const stagger = (Math.floor(s / OCS_POLE_SPACING_M) % 2 === 0 ? 1 : -1) * 0.2;
+        const hasPar = !(this.row && this.row.isStreetBand(s));
+        for (let t = 0; t < 2; t++) {
+          if (t === 1 && !hasPar) { wirePts[1].push(NaN, NaN, NaN); continue; }
+          const o = (t === 1 ? LRT_TRACK_CENTRES_M : 0) + stagger;
+          wirePts[t].push(p.x + lx * o, p.y + railTop + wireH(s), p.z + lz * o);
+        }
+      }
+      for (const wp of wirePts) {
+        const segs: number[] = [];
+        for (let i = 0; i + 5 < wp.length; i += 3) {
+          if (!Number.isFinite(wp[i]) || !Number.isFinite(wp[i + 3])) continue;
+          segs.push(wp[i], wp[i + 1], wp[i + 2], wp[i + 3], wp[i + 4], wp[i + 5]);
+        }
+        const lg = new THREE.BufferGeometry();
+        lg.setAttribute('position', new THREE.Float32BufferAttribute(segs, 3));
+        g.add(new THREE.LineSegments(lg, new THREE.LineBasicMaterial({ color: 0x2b2b2b })));
+      }
+      for (let s = 0; s < track.length; s += OCS_POLE_SPACING_M) {
+        const p = track.sample(s);
+        const R = p.curvature > 1e-5 ? 1 / p.curvature : 1e6;
+        // pole on the right (outside the double track), clear of the swept envelope
+        const off = Math.max(OCS_POLE_OFFSET_M, envelopeHalfWidth(R) + 0.3);
+        const lx = Math.cos(p.heading), lz = -Math.sin(p.heading);
+        const wh = wireH(s);
+        const poleH = wh + 1.4;
+        const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.16, poleH, 8), this.mastMat);
+        const px = p.x - lx * off, pz = p.z - lz * off;
+        pole.position.set(px, p.y + poleH / 2 - 0.3, pz);
         g.add(pole);
-        const wire = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.04, 50), this.railMat);
-        wire.position.set(p.x, p.y + 5.6, p.z);
-        wire.rotation.y = p.heading;
-        g.add(wire);
-
-        // Side fence / posts only on reserved corridor
-        if (!street) {
+        const hasPar = !(this.row && this.row.isStreetBand(s));
+        const reach = off + (hasPar ? LRT_TRACK_CENTRES_M + 0.5 : 0.5);
+        const arm = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.06, reach), this.mastMat);
+        arm.position.set(px + lx * reach / 2, p.y + railTop + wh + 0.9, pz + lz * reach / 2);
+        arm.rotation.y = p.heading + Math.PI / 2;
+        g.add(arm);
+        // Side fence posts only on reserved corridor, outside poles
+        if (hasPar) {
           for (const sideSign of [-1, 1]) {
-            const post = new THREE.Mesh(
-              new THREE.BoxGeometry(0.08, 1.4, 0.08),
-              this.fenceMat,
-            );
-            post.position.set(
-              p.x - hz * sideSign * 4.2,
-              p.y + 0.7,
-              p.z + hx * sideSign * 4.2,
-            );
+            const fo = sideSign < 0 ? -(off + 1.0) : LRT_TRACK_CENTRES_M + off + 1.0;
+            const post = new THREE.Mesh(new THREE.BoxGeometry(0.08, 1.4, 0.08), this.fenceMat);
+            const fx = p.x + lx * fo, fz = p.z + lz * fo;
+            post.position.set(fx, this.ground.exactHeight(fx, fz) + 0.7, fz);
             g.add(post);
-            if (s % 100 < 50) {
-              const railF = new THREE.Mesh(
-                new THREE.BoxGeometry(0.04, 0.06, 48),
-                this.fenceMat,
-              );
-              railF.position.set(
-                p.x - hz * sideSign * 4.2,
-                p.y + 1.1,
-                p.z + hx * sideSign * 4.2,
-              );
-              railF.rotation.y = p.heading;
-              g.add(railF);
-            }
           }
         }
       }
@@ -221,7 +464,22 @@ export class TerrainSystem {
       placed.push(sig);
     }
     for (const sig of placed) {
-      const y = this.elev.heightAtLocal(sig.x, sig.z);
+      // Keep the mast outside the LRV dynamic envelope (OSM nodes often sit on the rail)
+      let sx = sig.x, sz = sig.z;
+      if (track) {
+        const p = track.sample(Math.min(track.length, Math.max(0, sig.s_ion)));
+        const lx = Math.cos(p.heading), lz = -Math.sin(p.heading);
+        const lat = (sx - p.x) * lx + (sz - p.z) * lz;
+        const R = p.curvature > 1e-5 ? 1 / p.curvature : 1e6;
+        const minOff = Math.max(OCS_POLE_OFFSET_M + 0.6, envelopeHalfWidth(R) + 0.6);
+        if (Math.abs(lat) < minOff) {
+          const side = lat >= 0 && lat > 0.01 ? 1 : -1; // default right of the track
+          const along = (sx - p.x) * Math.sin(p.heading) + (sz - p.z) * Math.cos(p.heading);
+          sx = p.x + Math.sin(p.heading) * along + lx * side * minOff;
+          sz = p.z + Math.cos(p.heading) * along + lz * side * minOff;
+        }
+      }
+      const y = this.ground.exactHeight(sx, sz);
       const g = new THREE.Group();
       const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.1, 5.2, 6), this.mastMat);
       mast.position.set(0, 2.6, 0);
@@ -242,7 +500,7 @@ export class TerrainSystem {
         const p = track.sample(Math.min(track.length, Math.max(0, sig.s_ion)));
         heading = p.heading + Math.PI / 2;
       }
-      g.position.set(sig.x, y, sig.z);
+      g.position.set(sx, y, sz);
       g.rotation.y = heading;
       this.worldExtras.add(g);
       this.signalMeshes.set(sig.id, { group: g, lamps });
@@ -250,14 +508,23 @@ export class TerrainSystem {
   }
 
   /** Heavy-rail crossing gates / flashers. */
-  buildCrossings() {
+  buildCrossings(tracksByLine: Record<string, Track | undefined> = {}) {
     for (const [, m] of this.crossingMeshes) {
       this.worldExtras.remove(m.group);
     }
     this.crossingMeshes.clear();
     for (const c of this.crossingDefs) {
       if (c.style !== 'gates_flashers') continue;
-      const y = this.elev.heightAtLocal(c.x, c.z);
+      // Gate mast outside Transport Canada TC E-05 side clearance (2.546 m from track CL)
+      let cx = c.x, cz = c.z;
+      const t = tracksByLine[c.line];
+      if (t) {
+        const p = t.sample(Math.min(t.length, Math.max(0, c.s)));
+        const off = FREIGHT_SIDE_CLEARANCE_M + 1.0;
+        cx = p.x - Math.cos(p.heading) * off;
+        cz = p.z + Math.sin(p.heading) * off;
+      }
+      const y = this.ground.exactHeight(cx, cz);
       const g = new THREE.Group();
       const post = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.12, 3.2, 6), this.mastMat);
       post.position.y = 1.6;
@@ -281,7 +548,7 @@ export class TerrainSystem {
       const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.15, 8, 8), this.redMat);
       lamp.position.set(0, 3.0, 0.25);
       g.add(lamp);
-      g.position.set(c.x, y, c.z);
+      g.position.set(cx, y, cz);
       this.worldExtras.add(g);
       this.crossingMeshes.set(c.id, { group: g, gate, lamp });
     }
@@ -352,31 +619,48 @@ export class TerrainSystem {
     const g = new THREE.Group();
     g.userData.key = `${ix},${iz}`;
     const x0 = ix * CHUNK, z0 = iz * CHUNK;
-    const segs = 20;
-    const geo = new THREE.PlaneGeometry(CHUNK, CHUNK, segs, segs);
-    geo.rotateX(-Math.PI / 2);
-    const pos = geo.attributes.position;
-    const colors = new Float32Array(pos.count * 3);
-    for (let i = 0; i < pos.count; i++) {
-      const lx = pos.getX(i) + x0 + CHUNK / 2;
-      const lz = pos.getZ(i) + z0 + CHUNK / 2;
-      const y = this.elev.heightAtLocal(lx, lz);
-      pos.setY(i, y);
-      let r = 0.42, gch = 0.55, b = 0.32;
-      if (lz < -2000 && lx < -2000) { r = 0.45; gch = 0.62; b = 0.38; }
-      if (Math.hypot(lx + 1800, lz + 1600) < 900) { r = 0.55; gch = 0.52; b = 0.42; }
-      if (Math.hypot(lx - 200, lz - 200) < 1200) { r = 0.5; gch = 0.48; b = 0.45; }
-      if (lx > 3500 && lz > 2500) { r = 0.48; gch = 0.5; b = 0.4; }
-      if (lz < -8000) { r = 0.4; gch = 0.58; b = 0.35; }
-      if (lx > 15000) { r = 0.44; gch = 0.56; b = 0.36; }
-      colors[i * 3] = r; colors[i * 3 + 1] = gch; colors[i * 3 + 2] = b;
+    const n = SEGS + 1;
+    // ---- ground: grid on the corrected heightfield, landuse painted per vertex ----------
+    const pos = new Float32Array(n * n * 3);
+    const colors = new Float32Array(n * n * 3);
+    const uvs = new Float32Array(n * n * 2);
+    const polys = this.polys.filter(
+      (p) => p.maxX >= x0 && p.minX <= x0 + CHUNK && p.maxZ >= z0 && p.minZ <= z0 + CHUNK,
+    );
+    for (let j = 0; j < n; j++) {
+      for (let i = 0; i < n; i++) {
+        const x = x0 + i * GRID_M, z = z0 + j * GRID_M;
+        const k = j * n + i;
+        const y = this.ground.gridHeight(x, z);
+        pos[k * 3] = x; pos[k * 3 + 1] = y; pos[k * 3 + 2] = z;
+        let r = 0.42, gch = 0.55, b = 0.32;
+        for (const p of polys) {
+          if (x < p.minX || x > p.maxX || z < p.minZ || z > p.maxZ) continue;
+          if (pointInRing(x, z, p.ring)) { [r, gch, b] = p.color; }
+        }
+        // slight noise so large fields aren't flat colour
+        const nse = (Math.sin(x * 0.13) * Math.cos(z * 0.11)) * 0.025;
+        colors[k * 3] = r + nse; colors[k * 3 + 1] = gch + nse; colors[k * 3 + 2] = b + nse;
+        uvs[k * 2] = i / SEGS; uvs[k * 2 + 1] = 1 - j / SEGS;
+      }
     }
-    pos.needsUpdate = true;
-    geo.computeVertexNormals();
+    // Same diagonal as GroundModel.surfaceHeight: triangles (a,d,c) and (a,c,b) where
+    // a=(i,j) b=(i,j+1) c=(i+1,j+1) d=(i+1,j); winding chosen so normals face +y.
+    const idx: number[] = [];
+    for (let j = 0; j < SEGS; j++) {
+      for (let i = 0; i < SEGS; i++) {
+        const a = j * n + i, d = a + 1, bb = a + n, c = bb + 1;
+        idx.push(a, c, d, a, bb, c);
+      }
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
     geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    geo.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+    geo.setIndex(idx);
+    geo.computeVertexNormals();
     const groundMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1 });
     const mesh = new THREE.Mesh(geo, groundMat);
-    mesh.position.set(x0 + CHUNK / 2, 0, z0 + CHUNK / 2);
     mesh.receiveShadow = true;
     g.add(mesh);
     // Optional Cesium Ion aerial (fallback keeps vertex colours)
@@ -391,95 +675,91 @@ export class TerrainSystem {
       });
     }
 
-    // OSM road ribbons in this chunk
+    // ---- OSM roads: per-vertex drape on the rendered terrain surface (+ rail level at
+    //      level crossings), polygonOffset against the ground ------------------------------
     const pad = 40;
+    const rpos: number[] = [], ridx: number[] = [];
+    const drapeY = (x: number, z: number) =>
+      Math.max(this.ground.surfaceHeight(x, z), this.ground.inRibbon(x, z) ? this.ground.exactHeight(x, z) : -Infinity) + 0.05;
     for (const road of this.roads) {
       const coords = road.coords;
-      let touches = false;
-      for (const [x, z] of coords) {
-        if (x >= x0 - pad && x <= x0 + CHUNK + pad && z >= z0 - pad && z <= z0 + CHUNK + pad) {
-          touches = true;
-          break;
-        }
-      }
-      if (!touches) continue;
       for (let i = 0; i < coords.length - 1; i++) {
         const [ax, az] = coords[i];
         const [bx, bz] = coords[i + 1];
         const mx = (ax + bx) / 2, mz = (az + bz) / 2;
         if (mx < x0 - pad || mx > x0 + CHUNK + pad || mz < z0 - pad || mz > z0 + CHUNK + pad) continue;
+        // only the owning chunk draws a segment (avoid double draw z-fight)
+        if (Math.floor(mx / CHUNK) !== ix || Math.floor(mz / CHUNK) !== iz) continue;
         const len = Math.hypot(bx - ax, bz - az);
-        if (len < 1) continue;
-        const y = this.elev.heightAtLocal(mx, mz) + 0.06;
-        const ribbon = new THREE.Mesh(
-          new THREE.BoxGeometry(road.width, 0.08, len),
-          this.asphaltMat,
-        );
-        ribbon.position.set(mx, y, mz);
-        ribbon.lookAt(bx, y, bz);
-        g.add(ribbon);
+        if (len < 0.5) continue;
+        const ux = (bx - ax) / len, uz = (bz - az) / len;
+        const hw = road.width / 2;
+        const steps = Math.max(1, Math.ceil(len / 3));
+        let prev = -1;
+        for (let k = 0; k <= steps; k++) {
+          const t = k / steps;
+          const x = ax + (bx - ax) * t, z = az + (bz - az) * t;
+          const lx = -uz * hw, lz = ux * hw;
+          rpos.push(x + lx, drapeY(x + lx, z + lz), z + lz, x - lx, drapeY(x - lx, z - lz), z - lz);
+          const cur = rpos.length / 3 - 2;
+          if (prev >= 0) ridx.push(prev, cur, prev + 1, prev + 1, cur, cur + 1);
+          prev = cur;
+        }
       }
     }
+    if (ridx.length) {
+      const rg = new THREE.BufferGeometry();
+      rg.setAttribute('position', new THREE.Float32BufferAttribute(rpos, 3));
+      rg.setIndex(ridx);
+      rg.computeVertexNormals();
+      // ribbons may be wound either way depending on direction → double-sided
+      const rm = new THREE.Mesh(rg, this.roadMat);
+      this.roadMat.side = THREE.DoubleSide;
+      rm.receiveShadow = true;
+      g.add(rm);
+    }
 
-    // Instanced trees (fewer near dense road chunks)
-    const trees: THREE.Object3D[] = [];
-    for (let n = 0; n < 28; n++) {
+    // ---- trees (never inside the track corridor) ---------------------------------------
+    for (let k = 0; k < 28; k++) {
       const tx = x0 + Math.random() * CHUNK;
       const tz = z0 + Math.random() * CHUNK;
-      const ty = this.elev.heightAtLocal(tx, tz);
+      if (this.ground.inRibbon(tx, tz)) continue;
+      const ty = this.ground.surfaceHeight(tx, tz);
       const tree = new THREE.Mesh(this.treeGeo, this.treeMat);
       tree.position.set(tx, ty + 3.5, tz);
       tree.rotation.y = Math.random() * Math.PI;
-      const sc = 0.7 + Math.random() * 0.8;
-      tree.scale.setScalar(sc);
-      trees.push(tree);
+      tree.scale.setScalar(0.7 + Math.random() * 0.8);
+      g.add(tree);
     }
-    for (const t of trees) g.add(t);
 
+    // ---- buildings: base sunk to the lowest draped ground under the footprint -----------
     if (this.scenery) {
-      const spad = 50;
-      const addPoly = (ring: number[][], mat: THREE.Material, yOff: number, extrudeH?: number) => {
+      for (const bld of this.scenery.buildings || []) {
+        const ring: number[][] = bld.ring;
+        if (!ring || ring.length < 3) continue;
+        let cx = 0, cz = 0;
+        for (const [x, z] of ring) { cx += x; cz += z; }
+        cx /= ring.length; cz /= ring.length;
+        if (Math.floor(cx / CHUNK) !== ix || Math.floor(cz / CHUNK) !== iz) continue;
+        let lo = Infinity, hi = -Infinity;
+        for (const [x, z] of ring) {
+          const h = this.ground.surfaceHeight(x, z);
+          if (h < lo) lo = h;
+          if (h > hi) hi = h;
+        }
         const shape = new THREE.Shape();
-        let inside = false;
-        for (let i = 0; i < ring.length; i++) {
-          const [x, z] = ring[i];
-          if (x >= x0 - spad && x <= x0 + CHUNK + spad && z >= z0 - spad && z <= z0 + CHUNK + spad) inside = true;
-          if (i === 0) shape.moveTo(x, -z); else shape.lineTo(x, -z);
-        }
-        if (!inside) return;
-        if (extrudeH && extrudeH > 0) {
-          const eg = new THREE.ExtrudeGeometry(shape, { depth: extrudeH, bevelEnabled: false });
-          eg.rotateX(-Math.PI / 2);
-          const m = new THREE.Mesh(eg, mat);
-          let cx = 0, cz = 0;
-          for (const [x, z] of ring) { cx += x; cz += z; }
-          cx /= ring.length; cz /= ring.length;
-          m.position.y = this.elev.heightAtLocal(cx, cz) + yOff;
-          g.add(m);
-        } else {
-          const sg = new THREE.ShapeGeometry(shape);
-          sg.rotateX(-Math.PI / 2);
-          const m = new THREE.Mesh(sg, mat);
-          let cx = 0, cz = 0;
-          for (const [x, z] of ring) { cx += x; cz += z; }
-          cx /= ring.length; cz /= ring.length;
-          m.position.y = this.elev.heightAtLocal(cx, cz) + 0.05 + yOff;
-          g.add(m);
-        }
-      };
-      for (const p of this.scenery.parks || []) {
-        const mat = this.landMats[p.kind] || this.landMats.park;
-        addPoly(p.ring, mat, 0.02);
-      }
-      for (const p of this.scenery.water || []) addPoly(p.ring, this.waterMat, 0.01);
-      for (const p of this.scenery.landuse || []) {
-        const mat = this.landMats[p.kind] || this.landMats.default;
-        addPoly(p.ring, mat, 0.03);
-      }
-      for (const b of this.scenery.buildings || []) {
-        addPoly(b.ring, this.buildingMat, 0, b.h || 8);
+        ring.forEach(([x, z], i) => (i === 0 ? shape.moveTo(x, -z) : shape.lineTo(x, -z)));
+        const height = (bld.h || 8) + (hi - lo) + 0.3;
+        const eg = new THREE.ExtrudeGeometry(shape, { depth: height, bevelEnabled: false });
+        eg.rotateX(-Math.PI / 2);
+        const m = new THREE.Mesh(eg, this.buildingMat);
+        m.position.y = lo - 0.3;
+        m.castShadow = true;
+        m.receiveShadow = true;
+        g.add(m);
       }
     }
+    g.visible = !this.photoreal;
     return g;
   }
 }

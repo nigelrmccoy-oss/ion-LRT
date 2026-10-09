@@ -470,6 +470,170 @@ async function main() {
   }
 
 
+  // --- l. v1.4 regression: dry P7 from standstill — realistic accel, never SLIP, no creep ---
+  {
+    const dt = 1 / 60;
+    const run = (grade, curv, secs = 10) => {
+      const p = electric('dry');
+      p.reverser = 1;
+      p.powerNotch = 7;
+      let slip = false, v1 = 0, monotone = true, prev = 0;
+      for (let t = 0; t < secs; t += dt) {
+        p.step(dt, grade, curv);
+        if (p.wheelslip) slip = true;
+        if (p.speed < prev - 1e-9) monotone = false;
+        prev = p.speed;
+        if (Math.abs(t - 1) < dt / 2) v1 = p.speed;
+      }
+      return { slip, a1: v1 / 1, kmh: p.speedKmh(), monotone };
+    };
+    const flat = run(0, 0);
+    assert('l. dry P7 flat: no SLIP flag', !flat.slip);
+    assert('l. dry P7 flat: accel 0.7–1.2 m/s² (Flexity ~1.0–1.1)', flat.a1 > 0.7 && flat.a1 < 1.2, `a=${flat.a1.toFixed(2)} m/s²`);
+    assert('l. dry P7 flat: >25 km/h after 10 s (no ~1 km/h creep)', flat.kmh > 25, `${flat.kmh.toFixed(1)} km/h`);
+    // The Northfield / Block Line failure: tight-ish curve (R≈60–100 m) + grade
+    for (const [g, R] of [[0, 100], [0.02, 60], [0.04, 25]]) {
+      const r = run(g, 1 / R);
+      assert(`l. dry P7 R=${R} m grade ${g * 100}%: no SLIP, departs`, !r.slip && r.kmh > 8 && r.monotone,
+        `${r.kmh.toFixed(1)} km/h slip=${r.slip} monotone=${r.monotone}`);
+    }
+    const p = electric('dry');
+    assert('l. curve resistance R=100 m < 10 kN (was 165 kN)', p.curveResistance(0.01) < 10000, `${(p.curveResistance(0.01) / 1000).toFixed(2)} kN`);
+    // Standing with zero TE on level track must not drift (static friction, no jitter)
+    const q = electric('dry');
+    q.reverser = 1; q.powerNotch = 0;
+    for (let t = 0; t < 5; t += dt) q.step(dt, 0, 0.02);
+    assert('l. standstill P0 on curve: no creep', q.speed === 0, `v=${q.speed}`);
+    // Rain P8 must still slip (adhesion model still active)
+    const rr = electric('rain'); rr.reverser = 1; rr.powerNotch = 8;
+    let rs = false; for (let t = 0; t < 3; t += dt) { rr.step(dt, 0, 0); if (rr.wheelslip) rs = true; }
+    assert('l. rain P8 still flags SLIP', rs);
+  }
+
+  // --- m. Articulation: 5 modules through an S-curve at the 25 m minimum radius ---
+  {
+    const { mod: art, cleanup: cArt } = await bundleEntry(path.join(root, 'src/game/Articulation.ts'), 'Articulation');
+    const { mod: clr, cleanup: cClr } = await bundleEntry(path.join(root, 'src/game/Clearances.ts'), 'Clearances');
+    const { mod: trk, cleanup: cTrk } = await bundleEntry(path.join(root, 'src/game/Track.ts'), 'TrackArt');
+    const { Track } = trk;
+    // Build S-curve: 60 m straight, R=25 left 90°, R=25 right 90°, 60 m straight
+    const pts = [];
+    let x = 0, z = 0, h = 0;
+    const push = () => pts.push({ lon: 0, lat: 0, x, y: 0.1 * Math.sin(x / 40), z, s: 0, grade: 0, curvature: 0 });
+    push();
+    const go = (len, k) => {
+      const n = Math.ceil(len / 0.5);
+      for (let i = 0; i < n; i++) { h += k * (len / n); x += Math.sin(h) * (len / n); z += Math.cos(h) * (len / n); push(); }
+    };
+    go(60, 0); go(25 * Math.PI / 2, 1 / 25); go(25 * Math.PI / 2, -1 / 25); go(60, 0);
+    const t = new Track('S-curve');
+    t.points = pts;
+    t.recomputeChainage();
+    t.recomputeDerivatives();
+    const env = clr.envelopeHalfWidth(25);
+    let worst = 0, worstTruck = 0, worstGap = 0, worstJoint = 0;
+    const nearestLat = (px, pz) => {
+      let best = Infinity;
+      for (let i = 0; i < t.points.length - 1; i++) {
+        const a = t.points[i], b = t.points[i + 1];
+        const vx = b.x - a.x, vz = b.z - a.z, L2 = vx * vx + vz * vz || 1;
+        const u = Math.max(0, Math.min(1, ((px - a.x) * vx + (pz - a.z) * vz) / L2));
+        const d = Math.hypot(px - (a.x + vx * u), pz - (a.z + vz * u));
+        if (d < best) best = d;
+      }
+      return best;
+    };
+    for (let sC = 20; sC < t.length - 20; sC += 1.5) {
+      const pose = art.poseConsist(t, sC, 1);
+      for (const tr of pose.trucks) worstTruck = Math.max(worstTruck, nearestLat(tr.pos.x, tr.pos.z));
+      for (const m of pose.modules) {
+        for (const c of art.moduleCorners(m, clr.LRV_WIDTH_M)) worst = Math.max(worst, nearestLat(c.x, c.z));
+      }
+      // articulation joints stay together (rear face of k ≈ front face of k+1)
+      for (let k = 0; k < 4; k++) {
+        const a = pose.modules[k], b = pose.modules[k + 1];
+        const ra = { x: a.pos.x - a.fwd.x * a.len / 2, z: a.pos.z - a.fwd.z * a.len / 2 };
+        const fb = { x: b.pos.x + b.fwd.x * b.len / 2, z: b.pos.z + b.fwd.z * b.len / 2 };
+        worstGap = Math.max(worstGap, Math.hypot(ra.x - fb.x, ra.z - fb.z));
+        let dy = b.yaw - a.yaw; while (dy > Math.PI) dy -= 2 * Math.PI; while (dy < -Math.PI) dy += 2 * Math.PI;
+        worstJoint = Math.max(worstJoint, Math.abs(dy));
+      }
+    }
+    assert('m. trucks stay on the rail centreline', worstTruck < 0.06, `max=${worstTruck.toFixed(3)} m`);
+    assert('m. body corners within dynamic envelope on R=25 S-curve', worst <= env + 0.02,
+      `max=${worst.toFixed(3)} m envelope=${env.toFixed(3)} m`);
+    assert('m. bodies actually bend (joint yaw > 5° on R=25)', worstJoint > 5 * Math.PI / 180, `max joint=${(worstJoint * 180 / Math.PI).toFixed(1)}°`);
+    assert('m. articulation faces meet (gap < 0.9 m incl. bellows)', worstGap < 0.9, `max gap=${worstGap.toFixed(3)} m`);
+    const straight = art.poseConsist(t, 30, 1);
+    const yaws = straight.modules.map((m) => m.yaw);
+    assert('m. straight track: all modules aligned', Math.max(...yaws) - Math.min(...yaws) < 1e-3);
+    assert('m. superelevation capped & zero in street', Math.abs(art.superelevationFor(1 / 25, 20, true)) <= clr.MAX_SUPERELEVATION_M + 1e-9 && art.superelevationFor(1 / 25, 20, false) === 0);
+    await cArt(); await cClr(); await cTrk();
+  }
+
+  // --- n. Ground corridor: cut/fill keeps terrain under rails, bridge over deep valley ---
+  {
+    const { mod: gm, cleanup: cG } = await bundleEntry(path.join(root, 'src/game/Ground.ts'), 'Ground');
+    const { mod: trk, cleanup: cT } = await bundleEntry(path.join(root, 'src/game/Track.ts'), 'TrackGround');
+    const { Track } = trk;
+    // DEM: hill crossing the line at z≈200 (+8 m), valley at z≈500 (−12 m), bumpy noise
+    const dem = {
+      heightAtLocal: (x, z) =>
+        8 * Math.exp(-(((z - 200) / 40) ** 2)) - 12 * Math.exp(-(((z - 500) / 30) ** 2)) +
+        0.6 * Math.sin(x * 0.3) * Math.cos(z * 0.21),
+    };
+    const pts = [];
+    for (let z = 0; z <= 800; z += 5) pts.push({ lon: 0, lat: 0, x: 3 + 0.004 * z * z / 50, y: 0.35, z, s: 0, grade: 0, curvature: 0 });
+    const t = new Track('Synthetic');
+    t.points = pts; t.recomputeChainage(); t.recomputeDerivatives();
+    const g = new gm.GroundModel(dem);
+    g.addTrack(t);
+    let pokeRibbon = 0, pokeMesh = 0, bridge = false;
+    for (let s = 2; s < t.length - 2; s += 1.7) {
+      const p = t.sampleRaw(s);
+      const c = g.tracks[0].samples[Math.round(s / 2)];
+      if (c.bridge) bridge = true;
+      for (let o = -1.6; o <= 1.6; o += 0.4) {
+        const lx = c.fz, lz = -c.fx;
+        const x = p.x + lx * o, z = p.z + lz * o;
+        if (!c.bridge) pokeRibbon = Math.max(pokeRibbon, g.exactHeight(x, z) - (p.y - 0.3));
+        pokeMesh = Math.max(pokeMesh, g.surfaceHeight(x, z) - (p.y - 0.3));
+      }
+    }
+    assert('n. corridor surface never above ballast bottom under rails', pokeRibbon <= 1e-6, `max=${pokeRibbon.toFixed(3)} m`);
+    assert('n. coarse terrain mesh never pokes through rail bed', pokeMesh <= 0, `max=${pokeMesh.toFixed(3)} m`);
+    assert('n. deep valley becomes a bridge (no 12 m embankment)', bridge);
+    // away from the track the DEM is untouched
+    const far = g.exactHeight(200, 200);
+    assert('n. DEM untouched 200 m from track', Math.abs(far - dem.heightAtLocal(200, 200)) < 1e-9);
+    // real ION alignment: mesh below rail bed at every 5 m
+    const elevMeta = JSON.parse(await readFile(path.join(root, 'public/data/elevation.json'), 'utf8'));
+    const gj = JSON.parse(await readFile(path.join(root, 'public/data/ion-track.geojson'), 'utf8'));
+        // Real SRTM-derived DEM from public/data (same as the game), loaded without fetch
+    const { mod: el, cleanup: cEl } = await bundleEntry(path.join(root, 'src/game/elevation.ts'), 'Elevation');
+    const dem2 = new el.Elevation();
+    dem2.meta = elevMeta;
+    const bin = await readFile(path.join(root, 'public/data/elevation.bin'));
+    dem2.grid = new Float32Array(bin.buffer.slice(bin.byteOffset, bin.byteOffset + bin.byteLength));
+    const spots = Object.values(elevMeta.spot_checks_m).map((q) => q.elev_m).filter((v) => v != null);
+    dem2.baseElev = spots.reduce((a, b) => a + b, 0) / Math.max(1, spots.length);
+    await cEl();
+    const ion = Track.fromLonLatProfile(gj.features[0].geometry.coordinates, elevMeta.track_profiles.ion, 'ION LRT', dem2.baseElev, false);
+    const g2 = new gm.GroundModel(dem2);
+    g2.addTrack(ion);
+    let poke2 = 0;
+    for (let s = 5; s < ion.length - 5; s += 5) {
+      const c = g2.tracks[0].samples[Math.round(s / 2)];
+      const p = ion.sampleRaw(s);
+      for (const o of [-1.2, 0, 1.2]) {
+        poke2 = Math.max(poke2, g2.surfaceHeight(p.x + c.fz * o, p.z - c.fx * o) - (p.y - 0.3));
+      }
+    }
+    const nBridge = g2.tracks[0].samples.filter((c) => c.bridge).length * 2;
+    assert('n. ION 16 km (real DEM): terrain mesh below rail bed everywhere', poke2 <= 0, `max=${poke2.toFixed(3)} m bridges≈${nBridge} m`);
+    await cG(); await cT();
+  }
+
   const failed = results.filter((r) => !r.ok);
   console.log(`\n${results.length - failed.length}/${results.length} passed`);
   if (failed.length) {

@@ -11,6 +11,21 @@ const weatherSel = document.getElementById('weather') as HTMLSelectElement;
 const todSel = document.getElementById('tod') as HTMLSelectElement;
 const tutorialOpt = document.getElementById('tutorialOpt') as HTMLInputElement;
 const startBtn = document.getElementById('startBtn') as HTMLButtonElement;
+const photorealOpt = document.getElementById('photorealOpt') as HTMLInputElement;
+const photorealNote = document.getElementById('photorealNote');
+// Only a presence check — the token itself is never displayed or logged.
+const hasIonToken = !!(import.meta.env.VITE_CESIUM_ION_TOKEN || '').trim();
+const PHOTOREAL_KEY = 'ion-lrt-photoreal-v14';
+if (!hasIonToken) {
+  photorealOpt.checked = false;
+  photorealOpt.disabled = true;
+  if (photorealNote) photorealNote.textContent = 'Photoreal needs VITE_CESIUM_ION_TOKEN in .env.local — using OSM scenery.';
+} else {
+  try { photorealOpt.checked = localStorage.getItem(PHOTOREAL_KEY) === '1'; } catch { /* */ }
+  photorealOpt.addEventListener('change', () => {
+    try { localStorage.setItem(PHOTOREAL_KEY, photorealOpt.checked ? '1' : '0'); } catch { /* */ }
+  });
+}
 
 const hud = {
   speedVal: document.getElementById('speedVal')!,
@@ -74,6 +89,7 @@ startBtn.addEventListener('click', async () => {
     weather: weatherSel.value as Weather,
     tod: todSel.value as 'day' | 'dusk' | 'night',
     runTutorial: tutorialOpt.checked,
+    photoreal: hasIonToken && photorealOpt.checked,
     onEnd: (html) => {
       endReport.innerHTML = html;
       endReport.classList.remove('hidden');

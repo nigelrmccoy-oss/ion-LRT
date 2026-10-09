@@ -11,7 +11,9 @@ export type TrackPoint = {
   z: number;
   s: number; // cumulative metres
   grade: number; // rise/run
-  curvature: number; // 1/radius approx
+  curvature: number; // |1/radius| (chord-smoothed over ±CURV_HALF_WINDOW_M)
+  /** Signed curvature: + = curving left (toward -x of heading frame), − = right. */
+  curvSigned?: number;
 };
 
 export class Track {
@@ -83,6 +85,10 @@ export class Track {
 
   /** Realistic LRV max |grade| (~5%). DEM noise often invents 20%+ cliffs. */
   static readonly MAX_ABS_GRADE = 0.05;
+  /** Half-window for chord curvature (m). */
+  static readonly CURV_HALF_WINDOW_M = 10;
+  /** Flexity Freedom min horizontal radius 25 m (Bombardier spec; Stage 2 ION EPR Table 4-2). */
+  static readonly MIN_RADIUS_M = 25;
 
   /** Moving-average Y, then clamp consecutive rises to MAX_ABS_GRADE; recompute s. */
   smoothAndClampElevation(window = 7) {
@@ -169,17 +175,25 @@ export class Track {
       b.grade = Math.max(-maxG, Math.min(maxG, g));
       b.curvature = 0;
     }
-    for (let i = 1; i < pts.length - 1; i++) {
-      const a = pts[i - 1], b = pts[i], c = pts[i + 1];
-      const v1 = new THREE.Vector2(b.x - a.x, b.z - a.z).normalize();
-      const v2 = new THREE.Vector2(c.x - b.x, c.z - b.z).normalize();
-      const cross = v1.x * v2.y - v1.y * v2.x;
-      const dot = THREE.MathUtils.clamp(v1.x * v2.x + v1.y * v2.y, -1, 1);
-      const ang = Math.acos(dot);
-      const ds = Math.max(1, (c.s - a.s) / 2);
-      let curv = ang / ds;
-      if (!Number.isFinite(curv) || Math.abs(cross) < 1e-6) curv = 0;
-      b.curvature = curv;
+    // Curvature from chord headings over ±L. The old per-vertex angle/ds estimate put the
+    // whole OSM vertex bend into one 5 m densified segment (R≈30 m spikes on gentle
+    // curves), which fed absurd curve resistance and roll.
+    const L = Track.CURV_HALF_WINDOW_M;
+    for (let i = 0; i < pts.length; i++) {
+      const s0 = pts[i].s;
+      if (s0 < L || s0 > this.length - L) { pts[i].curvature = 0; pts[i].curvSigned = 0; continue; }
+      const pa = this.sampleRaw(s0 - L), pb = pts[i], pc = this.sampleRaw(s0 + L);
+      const h1 = Math.atan2(pb.x - pa.x, pb.z - pa.z);
+      const h2 = Math.atan2(pc.x - pb.x, pc.z - pb.z);
+      let dh = h2 - h1;
+      while (dh > Math.PI) dh -= 2 * Math.PI;
+      while (dh < -Math.PI) dh += 2 * Math.PI;
+      let k = dh / L;
+      if (!Number.isFinite(k)) k = 0;
+      const kMax = 1 / Track.MIN_RADIUS_M;
+      k = Math.max(-kMax, Math.min(kMax, k));
+      pts[i].curvSigned = k;
+      pts[i].curvature = Math.abs(k);
     }
     if (pts.length > 1) {
       pts[pts.length - 1].curvature = 0;
@@ -202,11 +216,11 @@ export class Track {
     const pts = this.points;
     if (s <= 0) {
       const g0 = Number.isFinite(pts[0].grade) ? pts[0].grade : 0;
-      return { ...pts[0], heading: this.headingAt(0), grade: g0, curvature: 0 };
+      return { ...pts[0], heading: this.headingAt(0), grade: g0, curvature: 0, curvSigned: 0 };
     }
     if (s >= this.length) {
       const n = pts.length - 1;
-      return { ...pts[n], heading: this.headingAt(this.length), grade: pts[n].grade, curvature: 0 };
+      return { ...pts[n], heading: this.headingAt(this.length), grade: pts[n].grade, curvature: 0, curvSigned: 0 };
     }
     let lo = 0, hi = pts.length - 1;
     while (lo + 1 < hi) {
@@ -217,6 +231,8 @@ export class Track {
     const t = (s - a.s) / Math.max(1e-3, b.s - a.s);
     let grade = a.grade + (b.grade - a.grade) * t;
     let curvature = a.curvature + (b.curvature - a.curvature) * t;
+    let curvSigned = (a.curvSigned ?? 0) + ((b.curvSigned ?? 0) - (a.curvSigned ?? 0)) * t;
+    if (!Number.isFinite(curvSigned)) curvSigned = 0;
     if (!Number.isFinite(grade)) grade = 0;
     if (!Number.isFinite(curvature)) curvature = 0;
     grade = Math.max(-Track.MAX_ABS_GRADE, Math.min(Track.MAX_ABS_GRADE, grade));
@@ -230,7 +246,27 @@ export class Track {
       heading: this.headingAt(s),
       grade,
       curvature,
+      curvSigned,
     };
+  }
+
+  /**
+   * Position/height on the rail centreline at any chainage; beyond the ends the
+   * line is extrapolated straight (so articulated modules near a terminus stay on a line).
+   */
+  pointAt(s: number): { x: number; y: number; z: number } {
+    if (s >= 0 && s <= this.length) {
+      const r = this.sampleRaw(s);
+      return { x: r.x, y: r.y, z: r.z };
+    }
+    const atStart = s < 0;
+    const s0 = atStart ? 0 : this.length;
+    const s1 = atStart ? Math.min(this.length, 2) : Math.max(0, this.length - 2);
+    const p0 = this.sampleRaw(s0), p1 = this.sampleRaw(s1);
+    const d = Math.hypot(p1.x - p0.x, p1.z - p0.z) || 1;
+    const ux = (p0.x - p1.x) / d, uz = (p0.z - p1.z) / d; // pointing outward
+    const over = atStart ? -s : s - this.length;
+    return { x: p0.x + ux * over, y: p0.y, z: p0.z + uz * over };
   }
 
   headingAt(s: number) {
@@ -239,7 +275,7 @@ export class Track {
     return Math.atan2(look.x - here.x, look.z - here.z);
   }
 
-  private sampleRaw(s: number) {
+  sampleRaw(s: number) {
     const pts = this.points;
     if (s <= 0) return pts[0];
     if (s >= this.length) return pts[pts.length - 1];
