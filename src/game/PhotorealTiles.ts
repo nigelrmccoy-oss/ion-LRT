@@ -158,8 +158,8 @@ export class PhotorealTiles {
     if (!this.creditsEl) {
       this.creditsEl = document.getElementById('photorealCredits');
     }
-    if (this.creditsEl) this.creditsEl.classList.toggle('hidden', !on || this.status === 'missing_token');
-    if (on) this.renderCredits();
+    if (this.creditsEl) this.creditsEl.classList.toggle('hidden', !on || this.status === 'missing_token' || this.status === 'error');
+    if (on && this.status !== 'error') this.renderCredits();
   }
 
   private renderCredits() {

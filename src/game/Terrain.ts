@@ -4,7 +4,7 @@ import type { Track } from './Track';
 import type { RowClassifier } from './Row';
 import type { SignalDef, CrossingDef, SignalAspect } from './Signals';
 import type { CesiumIonImagery } from './CesiumIon';
-import { GroundModel, GRID_M, SLOPE_REACH_M, type CorridorTrack } from './Ground';
+import { GroundModel, GRID_M, SLOPE_REACH_M, ROAD_SINK_M, type CorridorTrack } from './Ground';
 import {
   BALLAST_TOP_HALF_WIDTH_M,
   FORMATION_DEPTH_M,
@@ -84,7 +84,9 @@ export class TerrainSystem {
   };
   private buildingMat = new THREE.MeshStandardMaterial({ color: 0xd8d2c8, roughness: 0.85, metalness: 0.05 });
   private waterMat = new THREE.MeshStandardMaterial({ color: 0x3a6ea5, roughness: 0.25, metalness: 0.3 });
-  private railMat = new THREE.MeshStandardMaterial({ color: 0x444448, metalness: 0.7, roughness: 0.4 });
+  // Rails win depth ties against draped roads / street pavement (roads used −2/−4 and
+  // covered the left rail near Central at grazing angles)
+  private railMat = offsetMat(new THREE.MeshStandardMaterial({ color: 0x444448, metalness: 0.7, roughness: 0.4 }), -4, -8);
   private ballastMat = new THREE.MeshStandardMaterial({ color: 0x6a6560, roughness: 1 });
   private asphaltMat = new THREE.MeshStandardMaterial({ color: 0x2a2a2e, roughness: 0.95, metalness: 0.05 });
   private embeddedMat = new THREE.MeshStandardMaterial({ color: 0x353538, roughness: 0.92, metalness: 0.08 });
@@ -119,13 +121,15 @@ export class TerrainSystem {
    * from the OSM ROW classifier and a second (visual) track on reserved sections.
    */
   setCorridors(tracks: Track[]) {
+    // v1.4.1: ION is two real running lines (SB + NB from OSM), each its own corridor —
+    // no synthetic "parallel visual track" any more.
     for (const t of tracks) {
       const isIon = t.name.includes('ION');
       this.ground.addTrack(t, {
-        isStreet: isIon && this.row ? (s) => this.row!.isStreetBand(s) : undefined,
-        parallelLeftM: isIon && this.row ? (s) => (this.row!.isStreetBand(s) ? 0 : LRT_TRACK_CENTRES_M) : undefined,
+        isStreet: isIon && this.row ? (s) => this.row!.isStreetBand(t.refS(s)) : undefined,
       });
     }
+    this.ground.setRoads(this.roads);
   }
 
   /** Photoreal 3D tiles replace the OSM ground/buildings; rails, OCS and stations stay. */
@@ -256,13 +260,16 @@ export class TerrainSystem {
           const o = offs[k] ?? offs[offs.length - 1];
           const x = c.x + lx * o, z = c.z + lz * o;
           const inFlat = o > -c.right && o < c.left;
-          const h = inFlat ? c.form : this.ground.exactHeight(x, z);
+          const h = inFlat ? c.form : this.ground.exactHeight(x, z) - this.ground.roadSink(x, z);
           pos.push(x, h, z);
           let r = 0.42, gg = 0.55, b = 0.3; // grass slope
           if (inFlat) {
             if (c.street) { r = 0.36; gg = 0.36; b = 0.37; } // asphalt / embedded concrete
             else { r = 0.45; gg = 0.42; b = 0.38; } // gravel shoulder
-          } else if (Math.abs(h - c.form) < 0.05) { r = 0.45; gg = 0.5; b = 0.33; }
+          } else if (Math.abs(h - c.form) < 0.05) {
+            // shared formation with a neighbouring line: same colour as its flat zone
+            if (c.street) { r = 0.36; gg = 0.36; b = 0.37; } else { r = 0.45; gg = 0.42; b = 0.38; }
+          }
           col.push(r, gg, b);
         }
       }
@@ -298,14 +305,13 @@ export class TerrainSystem {
     // ---- 2. ballast prism (continuous strip) + rails ------------------------------------
     const railTop = RAIL_TOP_ABOVE_TRACK_Y_M;
     const lines: number[] = [0];
-    if (isIon) lines.push(LRT_TRACK_CENTRES_M); // second (visual) track, left side
     for (const lineOff of lines) {
       const bpos: number[] = [], bidx: number[] = [];
       let run = 0;
       const rails: number[][] = [[], []];
       for (let i = 0; i < smp.length; i++) {
         const c = smp[i];
-        const has = lineOff === 0 || parallel(i) > 0;
+        const has = lineOff === 0;
         const lx = c.fz, lz = -c.fx;
         const cx = c.x + lx * lineOff, cz = c.z + lz * lineOff;
         if (!has) { run = 0; rails[0].push(NaN, NaN, NaN); rails[1].push(NaN, NaN, NaN); continue; }
@@ -388,57 +394,56 @@ export class TerrainSystem {
       }
     }
 
-    // ---- 4. ION overhead contact system ---------------------------------------------------
+    // ---- 4. ION overhead contact system (one wire per running line) ----------------------
     if (isIon) {
-      const wireH = (s: number) =>
-        (this.row && this.row.isStreetBand(s)) ? OCS_WIRE_HEIGHT_STREET_M : OCS_WIRE_HEIGHT_RESERVED_M;
-      this.wireHeightAt = wireH;
-      const wirePts: number[][] = [[], []];
+      const streetAt = (s: number) => !!(this.row && this.row.isStreetBand(track.refS(s)));
+      const wireH = (s: number) => (streetAt(s) ? OCS_WIRE_HEIGHT_STREET_M : OCS_WIRE_HEIGHT_RESERVED_M);
+      // pantograph lookup is keyed to reference chainage
+      this.wireHeightAt = (sRef: number) =>
+        (this.row && this.row.isStreetBand(sRef)) ? OCS_WIRE_HEIGHT_STREET_M : OCS_WIRE_HEIGHT_RESERVED_M;
+      const wp: number[] = [];
       for (let s = 0; s <= track.length; s += 10) {
         const p = track.sample(s);
         const lx = Math.cos(p.heading), lz = -Math.sin(p.heading);
         const stagger = (Math.floor(s / OCS_POLE_SPACING_M) % 2 === 0 ? 1 : -1) * 0.2;
-        const hasPar = !(this.row && this.row.isStreetBand(s));
-        for (let t = 0; t < 2; t++) {
-          if (t === 1 && !hasPar) { wirePts[1].push(NaN, NaN, NaN); continue; }
-          const o = (t === 1 ? LRT_TRACK_CENTRES_M : 0) + stagger;
-          wirePts[t].push(p.x + lx * o, p.y + railTop + wireH(s), p.z + lz * o);
-        }
+        wp.push(p.x + lx * stagger, p.y + railTop + wireH(s), p.z + lz * stagger);
       }
-      for (const wp of wirePts) {
-        const segs: number[] = [];
-        for (let i = 0; i + 5 < wp.length; i += 3) {
-          if (!Number.isFinite(wp[i]) || !Number.isFinite(wp[i + 3])) continue;
-          segs.push(wp[i], wp[i + 1], wp[i + 2], wp[i + 3], wp[i + 4], wp[i + 5]);
-        }
-        const lg = new THREE.BufferGeometry();
-        lg.setAttribute('position', new THREE.Float32BufferAttribute(segs, 3));
-        g.add(new THREE.LineSegments(lg, new THREE.LineBasicMaterial({ color: 0x2b2b2b })));
-      }
+      const segs: number[] = [];
+      for (let i = 0; i + 5 < wp.length; i += 3) segs.push(wp[i], wp[i + 1], wp[i + 2], wp[i + 3], wp[i + 4], wp[i + 5]);
+      const lg = new THREE.BufferGeometry();
+      lg.setAttribute('position', new THREE.Float32BufferAttribute(segs, 3));
+      g.add(new THREE.LineSegments(lg, new THREE.LineBasicMaterial({ color: 0x2b2b2b })));
       for (let s = 0; s < track.length; s += OCS_POLE_SPACING_M) {
         const p = track.sample(s);
         const R = p.curvature > 1e-5 ? 1 / p.curvature : 1e6;
-        // pole on the right (outside the double track), clear of the swept envelope
         const off = Math.max(OCS_POLE_OFFSET_M, envelopeHalfWidth(R) + 0.3);
         const lx = Math.cos(p.heading), lz = -Math.sin(p.heading);
+        // pole on the right; if another line is on that side (pole would stand in the
+        // gap / its envelope) use the left; if both sides are taken, the neighbour's poles
+        // carry the cantilever.
+        let side = 0;
+        for (const cand of [-1, 1]) {
+          const px = p.x + lx * cand * off, pz = p.z + lz * cand * off;
+          if (this.ground.nearestOtherTrackDist(px, pz, track) > off) { side = cand; break; }
+        }
+        if (!side) continue;
         const wh = wireH(s);
         const poleH = wh + 1.4;
         const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.16, poleH, 8), this.mastMat);
-        const px = p.x - lx * off, pz = p.z - lz * off;
+        const px = p.x + lx * side * off, pz = p.z + lz * side * off;
         pole.position.set(px, p.y + poleH / 2 - 0.3, pz);
         g.add(pole);
-        const hasPar = !(this.row && this.row.isStreetBand(s));
-        const reach = off + (hasPar ? LRT_TRACK_CENTRES_M + 0.5 : 0.5);
+        const reach = off + 0.5;
         const arm = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.06, reach), this.mastMat);
-        arm.position.set(px + lx * reach / 2, p.y + railTop + wh + 0.9, pz + lz * reach / 2);
+        arm.position.set(px - lx * side * reach / 2, p.y + railTop + wh + 0.9, pz - lz * side * reach / 2);
         arm.rotation.y = p.heading + Math.PI / 2;
         g.add(arm);
-        // Side fence posts only on reserved corridor, outside poles
-        if (hasPar) {
-          for (const sideSign of [-1, 1]) {
-            const fo = sideSign < 0 ? -(off + 1.0) : LRT_TRACK_CENTRES_M + off + 1.0;
+        // fence post on reserved ROW, outside the pole, unless another line is there
+        if (!streetAt(s)) {
+          const fo = side * (off + 1.0);
+          const fx = p.x + lx * fo, fz = p.z + lz * fo;
+          if (this.ground.nearestOtherTrackDist(fx, fz, track) > off + 1) {
             const post = new THREE.Mesh(new THREE.BoxGeometry(0.08, 1.4, 0.08), this.fenceMat);
-            const fx = p.x + lx * fo, fz = p.z + lz * fo;
             post.position.set(fx, this.ground.exactHeight(fx, fz) + 0.7, fz);
             g.add(post);
           }
@@ -449,34 +454,56 @@ export class TerrainSystem {
     return g;
   }
 
-  /** Place 3D traffic-signal heads (street-running ION). */
-  buildTrafficSignals(track: Track | null) {
+  /** Place 3D traffic-signal heads (street-running ION), clear of every running line. */
+  buildTrafficSignals(tracks: Track[] | null) {
     for (const [, m] of this.signalMeshes) {
       this.worldExtras.remove(m.group);
     }
     this.signalMeshes.clear();
-    // Thin: keep signals within 35 m of track samples already filtered; cluster ~18 m
+    const lines = tracks ?? [];
     const placed: SignalDef[] = [];
     for (const sig of this.signalDefs) {
       if (placed.some((p) => Math.hypot(p.x - sig.x, p.z - sig.z) < 18)) continue;
-      // Prefer street-band signals for ION visuals
       if (this.row && !this.row.isStreetBand(sig.s_ion) && sig.dist_m > 18) continue;
       placed.push(sig);
     }
-    for (const sig of placed) {
-      // Keep the mast outside the LRV dynamic envelope (OSM nodes often sit on the rail)
-      let sx = sig.x, sz = sig.z;
-      if (track) {
-        const p = track.sample(Math.min(track.length, Math.max(0, sig.s_ion)));
-        const lx = Math.cos(p.heading), lz = -Math.sin(p.heading);
-        const lat = (sx - p.x) * lx + (sz - p.z) * lz;
+    const clearance = (x: number, z: number) => {
+      let worst = Infinity;
+      for (const t of lines) {
+        const s = t.nearestSLocal(x, z);
+        const p = t.sample(s);
         const R = p.curvature > 1e-5 ? 1 / p.curvature : 1e6;
-        const minOff = Math.max(OCS_POLE_OFFSET_M + 0.6, envelopeHalfWidth(R) + 0.6);
-        if (Math.abs(lat) < minOff) {
-          const side = lat >= 0 && lat > 0.01 ? 1 : -1; // default right of the track
-          const along = (sx - p.x) * Math.sin(p.heading) + (sz - p.z) * Math.cos(p.heading);
-          sx = p.x + Math.sin(p.heading) * along + lx * side * minOff;
-          sz = p.z + Math.cos(p.heading) * along + lz * side * minOff;
+        const need = Math.max(OCS_POLE_OFFSET_M + 0.6, envelopeHalfWidth(R) + 0.6);
+        worst = Math.min(worst, Math.hypot(x - p.x, z - p.z) - need);
+      }
+      return worst;
+    };
+    for (const sig of placed) {
+      // Keep the mast outside every LRV dynamic envelope (OSM nodes often sit on the rail)
+      let sx = sig.x, sz = sig.z, heading = 0;
+      if (lines.length) {
+        let near = lines[0], nd = Infinity, ns = 0;
+        for (const t of lines) {
+          const s = t.nearestSLocal(sx, sz);
+          const q = t.sampleRaw(s);
+          const d = Math.hypot(q.x - sx, q.z - sz);
+          if (d < nd) { nd = d; near = t; ns = s; }
+        }
+        const p = near.sample(ns);
+        heading = p.heading + Math.PI / 2;
+        if (clearance(sx, sz) < 0) {
+          const lx = Math.cos(p.heading), lz = -Math.sin(p.heading);
+          const lat = (sx - p.x) * lx + (sz - p.z) * lz;
+          const pref = lat > 0.01 ? 1 : -1;
+          let done = false;
+          for (const extra of [0, 1, 2, 3, 4, 5, 6, 8, 10]) {
+            for (const side of [pref, -pref]) {
+              const o = OCS_POLE_OFFSET_M + 0.6 + extra;
+              const cx = p.x + lx * side * o, cz = p.z + lz * side * o;
+              if (clearance(cx, cz) >= 0) { sx = cx; sz = cz; done = true; break; }
+            }
+            if (done) break;
+          }
         }
       }
       const y = this.ground.exactHeight(sx, sz);
@@ -493,12 +520,6 @@ export class TerrainSystem {
         lamp.position.set(0, 4.9 - i * 0.28, 0.28);
         g.add(lamp);
         lamps.push(lamp);
-      }
-      // Orient roughly toward track if we have heading
-      let heading = 0;
-      if (track) {
-        const p = track.sample(Math.min(track.length, Math.max(0, sig.s_ion)));
-        heading = p.heading + Math.PI / 2;
       }
       g.position.set(sx, y, sz);
       g.rotation.y = heading;
@@ -679,8 +700,11 @@ export class TerrainSystem {
     //      level crossings), polygonOffset against the ground ------------------------------
     const pad = 40;
     const rpos: number[] = [], ridx: number[] = [];
-    const drapeY = (x: number, z: number) =>
-      Math.max(this.ground.surfaceHeight(x, z), this.ground.inRibbon(x, z) ? this.ground.exactHeight(x, z) : -Infinity) + 0.05;
+    // Roads follow the smooth design surface; the terrain mesh and corridor-ribbon slopes
+    // are sunk ROAD_SINK_M under every road (GroundModel.roadSink), so neither can poke
+    // through between road vertices. Inside a track's flat zone (street running) the road
+    // sits at pavement level, below the rail head.
+    const drapeY = (x: number, z: number) => this.ground.roadHeight(x, z);
     for (const road of this.roads) {
       const coords = road.coords;
       for (let i = 0; i < coords.length - 1; i++) {
@@ -694,15 +718,21 @@ export class TerrainSystem {
         if (len < 0.5) continue;
         const ux = (bx - ax) / len, uz = (bz - az) / len;
         const hw = road.width / 2;
-        const steps = Math.max(1, Math.ceil(len / 3));
+        const steps = Math.max(1, Math.ceil(len / 2.5));
+        const across = Math.max(1, Math.ceil(road.width / 2.5)); // ≤ 2.5 m between vertices
         let prev = -1;
         for (let k = 0; k <= steps; k++) {
           const t = k / steps;
           const x = ax + (bx - ax) * t, z = az + (bz - az) * t;
-          const lx = -uz * hw, lz = ux * hw;
-          rpos.push(x + lx, drapeY(x + lx, z + lz), z + lz, x - lx, drapeY(x - lx, z - lz), z - lz);
-          const cur = rpos.length / 3 - 2;
-          if (prev >= 0) ridx.push(prev, cur, prev + 1, prev + 1, cur, cur + 1);
+          const lx = -uz, lz = ux;
+          for (let c = 0; c <= across; c++) {
+            const o = -hw + (2 * hw * c) / across;
+            rpos.push(x + lx * o, drapeY(x + lx * o, z + lz * o), z + lz * o);
+          }
+          const cur = rpos.length / 3 - (across + 1);
+          if (prev >= 0) {
+            for (let c = 0; c < across; c++) ridx.push(prev + c, cur + c, prev + c + 1, prev + c + 1, cur + c, cur + c + 1);
+          }
           prev = cur;
         }
       }

@@ -59,6 +59,7 @@ async function main() {
     MASS_WCR_KG,
     AXLE_FRAC_FLEXITY,
     AXLE_FRAC_WCR,
+    curveSpeedLimitKmh,
   } = mod;
 
   const electric = (weather = 'dry') =>
@@ -633,6 +634,308 @@ async function main() {
     assert('n. ION 16 km (real DEM): terrain mesh below rail bed everywhere', poke2 <= 0, `max=${poke2.toFixed(3)} m bridges≈${nBridge} m`);
     await cG(); await cT();
   }
+
+  // ===== v1.4.1 regression tests (QA report 2026-10-08 on 608e890) =====================
+  const { mod: T141, cleanup: cT141 } = await bundleEntry(path.join(root, 'src/game/Track.ts'), 'Track141');
+  const { mod: E141, cleanup: cE141 } = await bundleEntry(path.join(root, 'src/game/elevation.ts'), 'Elev141');
+  const { mod: PL, cleanup: cPL } = await bundleEntry(path.join(root, 'src/game/PlatformLayout.ts'), 'PlatformLayout');
+  const { mod: AR, cleanup: cAR } = await bundleEntry(path.join(root, 'src/game/Articulation.ts'), 'Art141');
+  const Track141 = T141.Track;
+  const meta141 = JSON.parse(await readFile(path.join(root, 'public/data/elevation.json'), 'utf8'));
+  const dem141 = new E141.Elevation();
+  dem141.meta = meta141;
+  {
+    const bin = await readFile(path.join(root, 'public/data/elevation.bin'));
+    dem141.grid = new Float32Array(bin.buffer.slice(bin.byteOffset, bin.byteOffset + bin.byteLength));
+    const spots = Object.values(meta141.spot_checks_m).map((q) => q.elev_m).filter((v) => v != null);
+    dem141.baseElev = spots.reduce((a, b) => a + b, 0) / Math.max(1, spots.length);
+  }
+  const demAt = (lon, lat) => dem141.elevLonLat(lon, lat);
+  const coordsOf = async (f) => JSON.parse(await readFile(path.join(root, 'public/data', f), 'utf8')).features[0].geometry.coordinates;
+  const stations141 = JSON.parse(await readFile(path.join(root, 'public/data/stations.json'), 'utf8'));
+  const platforms141 = JSON.parse(await readFile(path.join(root, 'public/data/platforms.json'), 'utf8')).platforms;
+  const buildRoute = async (file, rev = false) => {
+    let prof = null;
+    if (file === 'ion-track.geojson') prof = meta141.track_profiles.ion;
+    if (file.includes('spur')) prof = meta141.track_profiles.spur;
+    if (file.includes('guelph')) prof = meta141.track_profiles.guelph;
+    return Track141.fromLonLatProfile(await coordsOf(file), prof, file, dem141.baseElev, rev, demAt);
+  };
+
+  // --- o. P0: rail height follows the DEM in BOTH directions on every route -------------
+  {
+    const files = ['ion-track.geojson', 'ion-sb.geojson', 'ion-nb.geojson', 'waterloo-spur.geojson', 'guelph-sub.geojson'];
+    for (const f of files) {
+      const fwd = await buildRoute(f, false);
+      const rev = await buildRoute(f, true);
+      for (const [t, tag] of [[fwd, 'fwd'], [rev, 'rev']]) {
+        const d = [];
+        for (let s = 0; s <= t.length; s += 10) {
+          const p = t.sampleRaw(s);
+          d.push(Math.abs(p.y - T141.Track.BED_ABOVE_DEM_M - dem141.heightAtLocal(p.x, p.z)));
+        }
+        d.sort((a, b) => a - b);
+        const med = d[d.length >> 1], p95 = d[Math.floor(d.length * 0.95)], mx = d[d.length - 1];
+        assert(`o. ${f} ${tag}: rail bed vs DEM (median < 1 m, p95 < 3 m, max < 9 m)`, med < 1 && p95 < 3 && mx < 9,
+          `median=${med.toFixed(2)} p95=${p95.toFixed(2)} max=${mx.toFixed(2)} m`);
+      }
+      // same place, opposite direction → same rail height (v1.4.0: +20 m / −17.7 m on NB)
+      let worst = 0;
+      for (let s = 0; s <= fwd.length; s += 25) {
+        const p = fwd.sampleRaw(s);
+        const q = rev.sampleRaw(rev.nearestSLocal(p.x, p.z));
+        worst = Math.max(worst, Math.abs(p.y - q.y));
+      }
+      assert(`o. ${f}: forward vs reversed rail height agree (< 0.6 m)`, worst < 0.6, `max Δ=${worst.toFixed(3)} m`);
+    }
+    // the original bug: profile indexed forward on a reversed geometry
+    const c = await coordsOf('ion-track.geojson');
+    const prof = meta141.track_profiles.ion;
+    const rev = Track141.fromLonLatProfile(c, prof, 'NB', dem141.baseElev, true, demAt);
+    const startAsl = rev.points[0].y - T141.Track.BED_ABOVE_DEM_M + dem141.baseElev;
+    assert('o. reversed ION starts at the Fairway end elevation (profile reversed too)',
+      Math.abs(startAsl - prof[prof.length - 1]) < 3, `start=${startAsl.toFixed(1)} Fairway profile=${prof[prof.length - 1].toFixed(1)} Conestoga=${prof[0].toFixed(1)}`);
+  }
+
+  // --- p. P1a/P1d: platforms follow the curve, real OSM side, never foul the other line --
+  const ionSb = await buildRoute('ion-sb.geojson');
+  const ionNb = await buildRoute('ion-nb.geojson');
+  {
+    const edge = 1.40;
+    for (const [key, t, other] of [['ion_southbound', ionSb, ionNb], ['ion_northbound', ionNb, ionSb]]) {
+      let worstEdge = 0, worstOther = Infinity, osm = 0, sideOk = 0, n = 0, worstStop = 0;
+      const bad = [];
+      for (const st of stations141.routes[key].stations) {
+        n++;
+        const s0 = t.nearestS(st.lon, st.lat);
+        const lay = PL.layoutPlatform(t, s0, {
+          platforms: platforms141, platformId: st.platform_osm, edgeOffset: edge, width: 3.5, length: 65, otherTracks: [other],
+        });
+        if (lay.source === 'osm') osm++;
+        for (const p of lay.edge) worstEdge = Math.max(worstEdge, Math.abs(PL.lateralOf(t, p.x, p.z).d - edge));
+        for (const p of [...lay.edge, ...lay.back]) worstOther = Math.min(worstOther, PL.lateralOf(other, p.x, p.z).d);
+        // independent side check: OSM outline centroid lateral sign vs chosen side
+        const pl = platforms141.find((q) => q.osm === st.platform_osm);
+        if (pl) {
+          const ring = PL.localRing(pl);
+          const cx = ring.reduce((a, q) => a + q.x, 0) / ring.length, cz = ring.reduce((a, q) => a + q.z, 0) / ring.length;
+          const lat = PL.lateralOf(t, cx, cz).lat;
+          if ((lat > 0 ? -1 : 1) === lay.side) sideOk++; else bad.push(st.id);
+          worstStop = Math.max(worstStop, Math.abs(lay.sCentre - PL.lateralOf(t, cx, cz).s));
+        }
+      }
+      assert(`p. ${key}: every stop matched to a real OSM platform`, osm === n, `${osm}/${n}`);
+      assert(`p. ${key}: platform side = OSM platform side`, sideOk === n, bad.length ? `wrong: ${bad.join(',')}` : `${sideOk}/${n}`);
+      assert(`p. ${key}: platform edge ${edge} m from track CL along the whole curved length (±0.05)`, worstEdge <= 0.05, `max err=${worstEdge.toFixed(3)} m`);
+      assert(`p. ${key}: platforms never reach within ${(edge - 0.05).toFixed(2)} m of the other ION line`, worstOther >= edge - 0.05, `min=${worstOther.toFixed(2)} m`);
+      assert(`p. ${key}: stop point at the real platform centre (≤ 40 m)`, worstStop <= 40, `max=${worstStop.toFixed(1)} m`);
+    }
+    // centre vs side platforms both exist (ION has both)
+    const sb = stations141.routes.ion_southbound.stations;
+    const sides = sb.map((st) => {
+      const lay = PL.layoutPlatform(ionSb, ionSb.nearestS(st.lon, st.lat), { platforms: platforms141, platformId: st.platform_osm, edgeOffset: 1.4, width: 3.5, length: 65, otherTracks: [ionNb] });
+      return lay.side;
+    });
+    assert('p. SB has both left (centre) and right (side) platforms', sides.includes(1) && sides.includes(-1), sides.join(' '));
+    // straight-box regression: Allen is curved — a straight 65 m box drifted 14 m
+    const allen = sb.find((s) => s.id === 'allen');
+    const la = PL.layoutPlatform(ionSb, ionSb.nearestS(allen.lon, allen.lat), { platforms: platforms141, platformId: allen.platform_osm, edgeOffset: 1.4, width: 3.5, length: 65 });
+    const e0 = la.edge[0], e1 = la.edge[la.edge.length - 1], em = la.edge[la.edge.length >> 1];
+    const chordDev = Math.abs(((e1.x - e0.x) * (em.z - e0.z) - (e1.z - e0.z) * (em.x - e0.x)) / Math.hypot(e1.x - e0.x, e1.z - e0.z));
+    assert('p. Allen platform edge is curved with the track (not a straight box)', chordDev > 0.3, `mid-chord offset=${chordDev.toFixed(2)} m`);
+  }
+
+  // --- q. P1b: hold brake — no rollback with doors open / interlocked, doors close --------
+  {
+    const p = electric('dry');
+    const up = 0.05; // +5 % upgrade in the direction of travel
+    p.reverser = 1;
+    p.brakeNotch = 4;
+    for (let i = 0; i < 60; i++) p.step(1 / 30, up, 0);
+    p.doorsOpen = true; // T at standstill
+    p.brakeNotch = 0;   // what v1.4.0's W did while interlocked
+    p.powerNotch = 3;
+    let minV = 0;
+    for (let i = 0; i < 300; i++) { p.step(1 / 30, up, 0); minV = Math.min(minV, p.speed); }
+    assert('q. doors open + brake released on +5 %: no rollback (hold brake)', minV >= 0 && p.holdBrake, `min v=${(minV * 3.6).toFixed(2)} km/h hold=${p.holdBrake}`);
+    assert('q. doors can be closed (car still at standstill)', Math.abs(p.speed) < 0.3);
+    p.doorsOpen = false;
+    p.powerNotch = 1; // weak notch: TE < grade force → hold brake must stay on
+    minV = 0;
+    for (let i = 0; i < 150; i++) { p.step(1 / 30, up, 0); minV = Math.min(minV, p.speed); }
+    assert('q. weak notch on +5 %: hold brake keeps the car (no rollback)', minV >= 0, `min v=${(minV * 3.6).toFixed(2)} km/h`);
+    p.powerNotch = 8;
+    for (let i = 0; i < 300; i++) p.step(1 / 30, up, 0);
+    assert('q. P8 on +5 %: hold brake releases and the car departs forward', p.speed > 1 && !p.holdBrake, `v=${(p.speed * 3.6).toFixed(1)} km/h`);
+    // neutral at standstill on a grade never rolls
+    const n = electric('dry');
+    n.reverser = 0;
+    let mv = 0;
+    for (let i = 0; i < 300; i++) { n.step(1 / 30, -0.05, 0); mv = Math.max(mv, Math.abs(n.speed)); }
+    assert('q. reverser N on −5 %: no roll-away', mv < 0.01, `max |v|=${mv.toFixed(3)}`);
+  }
+
+  // --- r. P1e: curve speed restrictions ------------------------------------------------
+  {
+    assert('r. TCRP curve speed: R25 → 15, R50 → 20, R100 → 30, R510 → 70 km/h',
+      curveSpeedLimitKmh(25) === 15 && curveSpeedLimitKmh(50) === 20 && curveSpeedLimitKmh(100) === 30 && curveSpeedLimitKmh(510) === 70,
+      `${curveSpeedLimitKmh(25)}/${curveSpeedLimitKmh(50)}/${curveSpeedLimitKmh(100)}/${curveSpeedLimitKmh(510)}`);
+    // Conestoga S-curves (QA: s≈120–220 and 530–570 posted 70)
+    const lim = (a, b) => { let m = 999; for (let s = a; s <= b; s += 2) m = Math.min(m, ionSb.curveLimitKmh(s)); return m; };
+    assert('r. SB R≈25 m S-curve after Conestoga restricted ≤ 20 km/h', lim(130, 175) <= 20, `min=${lim(130, 175)}`);
+    assert('r. SB second S-curve (s≈530–570) restricted ≤ 20 km/h', lim(530, 570) <= 20, `min=${lim(530, 570)}`);
+    ionSb.rowLookup = () => ({ row: 'reserved', limitKmh: 70 });
+    assert('r. speedLimitKmh = min(ROW limit, curve limit)', ionSb.speedLimitKmh(150, false) <= 20 && ionSb.speedLimitKmh(150, false) < 70);
+    ionSb.rowLookup = null;
+    // straight reserved track keeps line speed
+    let tangent = 0;
+    for (let s = 0; s < ionSb.length; s += 2) if (ionSb.curveLimitKmh(s) >= 70) tangent += 2;
+    assert('r. most of the line keeps 70 km/h (restrictions only on real curves)', tangent > ionSb.length * 0.5, `${(tangent / ionSb.length * 100).toFixed(0)} % at ≥ 70`);
+    const synth = new Track141('Synthetic');
+    const pts = [];
+    for (let z = 0; z <= 300; z += 5) pts.push({ lon: 0, lat: 0, x: 0, y: 0.35, z, s: 0, grade: 0, curvature: 0 });
+    synth.points = pts; synth.recomputeChainage(); synth.recomputeDerivatives();
+    assert('r. straight track: no curve restriction', synth.curveLimitKmh(150) >= 70);
+  }
+
+  // --- s. Cant transitions + smooth vertical profile: no module twist / pitch kinks -------
+  {
+    let worstRoll = 0, worstPitch = 0, maxGrade = 0;
+    for (const t of [ionSb, ionNb]) {
+      const raw = (s) => AR.superelevationFor(t.sample(Math.max(0, Math.min(t.length, s))).curvSigned ?? 0,
+        Math.min(70, t.curveLimitKmh(Math.max(0, Math.min(t.length, s)))) / 3.6, true);
+      const cant = AR.buildCantProfile(t.length, raw);
+      for (let s = 30; s < t.length - 30; s += 1) {
+        const pose = AR.poseConsist(t, s, 1, cant);
+        for (let i = 1; i < pose.modules.length; i++) {
+          worstRoll = Math.max(worstRoll, Math.abs(pose.modules[i].roll - pose.modules[i - 1].roll));
+          worstPitch = Math.max(worstPitch, Math.abs(pose.modules[i].pitch - pose.modules[i - 1].pitch));
+        }
+      }
+      for (let s = 0; s < t.length; s += 5) maxGrade = Math.max(maxGrade, Math.abs(t.sample(s).grade));
+    }
+    const deg = 180 / Math.PI;
+    assert('s. adjacent-module roll difference < 1.5° (cant run-off, no flip at inflections)', worstRoll * deg < 1.5, `max=${(worstRoll * deg).toFixed(2)}°`);
+    assert('s. adjacent-module pitch kink < 1.5° (no ±5 % sawtooth)', worstPitch * deg < 1.5, `max=${(worstPitch * deg).toFixed(2)}°`);
+    assert('s. design grade ≤ 5 %', maxGrade <= 0.05 + 1e-9, `max=${(maxGrade * 100).toFixed(2)} %`);
+    const f = AR.buildCantProfile(200, (s) => (s < 100 ? 0.1 : -0.1));
+    let g = 0;
+    for (let s = 1; s < 200; s++) g = Math.max(g, Math.abs(f(s) - f(s - 1)));
+    assert('s. reverse-curve cant ramps at ≤ 1:400', g <= AR.MAX_CANT_GRADIENT + 1e-9, `max gradient=${g.toFixed(5)} m/m`);
+  }
+
+  // --- t. P1c: diesel cab eye is in the cab window, not inside the loco body -------------
+  {
+    const { mod: V, cleanup: cV } = await bundleEntry(path.join(root, 'src/game/Vehicles.ts'), 'Vehicles141');
+    const THREE = await import('three');
+    const loco = V.createDieselConsist('wcr');
+    loco.updateMatrixWorld(true);
+    const eye = new THREE.Vector3(V.DIESEL_CAB_EYE.x, V.DIESEL_CAB_EYE.y, V.DIESEL_CAB_EYE.z);
+    const solid = ['longHood', 'shortHood', 'frame', 'coach'];
+    const inside = solid.filter((n) => new THREE.Box3().setFromObject(loco.getObjectByName(n)).containsPoint(eye));
+    assert('t. diesel cab eye not inside any solid body volume', inside.length === 0, inside.join(',') || 'clear');
+    const cabBox = new THREE.Box3().setFromObject(loco.getObjectByName('cab'));
+    assert('t. diesel cab eye inside the (hollow) cab', cabBox.containsPoint(eye));
+    // forward view: ray from the eye along +z hits only cab glass/front, nothing solid ahead
+    const ray = new THREE.Raycaster(eye, new THREE.Vector3(0, 0, 1), 0, 200);
+    const hits = ray.intersectObjects(solid.map((n) => loco.getObjectByName(n)), true);
+    assert('t. diesel forward view not blocked by hood/body', hits.length === 0, hits.map((h) => h.object.name).join(',') || 'clear');
+    const shortTop = new THREE.Box3().setFromObject(loco.getObjectByName('shortHood')).max.y;
+    assert('t. eye above the short hood', eye.y > shortTop + 0.3, `eye ${eye.y} hood ${shortTop}`);
+    await cV();
+  }
+
+  // --- u. P2: key presses are queued, none lost at low frame rate -----------------------
+  {
+    const listeners = {};
+    const fakeDoc = {
+      addEventListener: (t, fn) => { (listeners[t] ||= []).push(fn); },
+      pointerLockElement: null,
+    };
+    const prevDoc = globalThis.document;
+    globalThis.document = fakeDoc;
+    const { mod: IN, cleanup: cIN } = await bundleEntry(path.join(root, 'src/game/Input.ts'), 'Input141');
+    const canvas = { addEventListener() {}, tabIndex: 0, focus() {}, requestPointerLock() {} };
+    const inp = new IN.Input(canvas);
+    const fire = (type, code) => listeners[type].forEach((fn) => fn({ code, repeat: false, preventDefault() {} }));
+    // 7 W presses inside one ~200 ms frame (5 fps)
+    for (let i = 0; i < 7; i++) { fire('keydown', 'KeyW'); fire('keyup', 'KeyW'); }
+    fire('keydown', 'KeyW'); // held…
+    listeners.keydown.forEach((fn) => fn({ code: 'KeyW', repeat: true, preventDefault() {} })); // auto-repeat ignored
+    const q = inp.drainEdges();
+    assert('u. 8 real W presses in one frame → 8 edges (auto-repeat ignored)', q.length === 8 && q.every((c) => c === 'KeyW'), `${q.length}`);
+    assert('u. queue drained', inp.drainEdges().length === 0);
+    globalThis.document = prevDoc;
+    await cIN();
+  }
+
+  // --- v. Roads: terrain/ribbon never above draped roads; roads below the rail head -----
+  {
+    const { mod: GM, cleanup: cGM } = await bundleEntry(path.join(root, 'src/game/Ground.ts'), 'Ground141');
+    const dem = {
+      heightAtLocal: (x, z) => 3 * Math.sin(x * 0.045) * Math.cos(z * 0.031) + 0.8 * Math.sin(x * 0.21 + z * 0.17),
+    };
+    const g = new GM.GroundModel(dem);
+    // street-running line along z, road crossing it diagonally + a road beside it
+    const t = new Track141('ION street');
+    const pts = [];
+    for (let z = 0; z <= 400; z += 5) pts.push({ lon: 0, lat: 0, x: 0, y: dem.heightAtLocal(0, z) + 0.35, z, s: 0, grade: 0, curvature: 0 });
+    t.points = pts; t.recomputeChainage(); t.smoothVertical(); t.recomputeDerivatives();
+    g.addTrack(t, { isStreet: () => true });
+    const roads = [
+      { coords: [[-150, 40], [150, 360]], width: 14 },
+      { coords: [[2.5, 0], [2.5, 400]], width: 9 }, // street road over the track (like King St)
+      { coords: [[-200, 200], [-40, 120], [60, 300]], width: 10 },
+    ];
+    g.setRoads(roads);
+    let worstMesh = -Infinity, n = 0;
+    for (const r of roads) {
+      for (let i = 0; i + 1 < r.coords.length; i++) {
+        const [ax, az] = r.coords[i], [bx, bz] = r.coords[i + 1];
+        const L = Math.hypot(bx - ax, bz - az), ux = (bx - ax) / L, uz = (bz - az) / L;
+        for (let a = 0; a <= L; a += 0.7) {
+          for (let o = -r.width / 2; o <= r.width / 2; o += 0.6) {
+            const x = ax + ux * a - uz * o, z = az + uz * a + ux * o;
+            const road = g.roadHeight(x, z);
+            if (g.flatZoneLevel(x, z) !== null) continue; // pavement zone checked below
+            worstMesh = Math.max(worstMesh, g.surfaceHeight(x, z) - road);
+            n++;
+          }
+        }
+      }
+    }
+    assert('v. terrain mesh never above a draped road (incl. between road vertices)', worstMesh < -0.03, `max=${worstMesh.toFixed(3)} m over ${n} pts`);
+    // road on the street-running flat zone stays below the rail head (rails visible)
+    let worstRail = -Infinity;
+    for (let z = 10; z < 390; z += 1.3) {
+      for (const o of [-0.75, 0.75]) {
+        const p = t.sampleRaw(z);
+        worstRail = Math.max(worstRail, g.roadHeight(p.x + o, p.z) - (p.y + 0.09));
+      }
+    }
+    assert('v. road surface ≥ 5 cm below the rail head in street running', worstRail <= -0.05, `max=${worstRail.toFixed(3)} m`);
+    await cGM();
+  }
+
+  // --- w. Double track: NB shares the SB formation where the lines run side by side -----
+  {
+    const nb2 = await buildRoute('ion-nb.geojson');
+    nb2.blendHeightsToward(ionSb);
+    let worst = 0, cnt = 0, kink = 0;
+    for (let s = 0; s < nb2.length; s += 10) {
+      const p = nb2.sampleRaw(s);
+      const q = ionSb.sampleRaw(ionSb.nearestSLocal(p.x, p.z));
+      if (Math.hypot(q.x - p.x, q.z - p.z) < 5) { worst = Math.max(worst, Math.abs(p.y - q.y)); cnt++; }
+    }
+    for (let s = 30; s < nb2.length - 30; s += 2) {
+      const pose = AR.poseConsist(nb2, s, 1);
+      for (let i = 1; i < pose.modules.length; i++) kink = Math.max(kink, Math.abs(pose.modules[i].pitch - pose.modules[i - 1].pitch));
+    }
+    assert('w. NB rail height = SB rail height on shared double track (< 0.25 m)', worst < 0.25, `max Δ=${worst.toFixed(3)} m over ${cnt} pts`);
+    assert('w. blended NB still has no pitch kinks (< 1.5°)', kink * 180 / Math.PI < 1.5, `max=${(kink * 180 / Math.PI).toFixed(2)}°`);
+  }
+
+  await cT141(); await cE141(); await cPL(); await cAR();
 
   const failed = results.filter((r) => !r.ok);
   console.log(`\n${results.length - failed.length}/${results.length} passed`);

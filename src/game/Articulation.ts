@@ -55,6 +55,63 @@ export function superelevationFor(k: number, designSpeedMs: number, ballasted: b
 }
 
 /**
+ * Maximum cant (superelevation) gradient along the track: 1:400 (2.5 mm/m).
+ * ESTIMATE — chosen inside TCRP Report 155 spiral/run-off guidance for LRT; ION design
+ * values not published. Keeps the twist between adjacent trucks (~11 m) under ~1.1°.
+ */
+export const MAX_CANT_GRADIENT = 1 / 400;
+
+/**
+ * Cant profile with transitions (spiral run-off): sample the raw (instant) cant every
+ * `step` m, Gaussian-smooth it (σ) so ramps straddle the tangent/curve points, then
+ * rate-limit to MAX_CANT_GRADIENT (forward + backward passes until stable). Reverse
+ * curves therefore pass through zero gradually instead of flipping sign in one sample.
+ */
+export function buildCantProfile(
+  length: number,
+  rawAt: (s: number) => number,
+  opts: { step?: number; sigma?: number; rate?: number } = {},
+): (s: number) => number {
+  const step = opts.step ?? 1;
+  const sigma = opts.sigma ?? 12;
+  const rate = opts.rate ?? MAX_CANT_GRADIENT;
+  const n = Math.max(2, Math.ceil(length / step) + 1);
+  const raw = new Float64Array(n);
+  for (let i = 0; i < n; i++) raw[i] = rawAt(Math.min(length, i * step)) || 0;
+  const w = Math.ceil((3 * sigma) / step);
+  const kern: number[] = [];
+  for (let k = -w; k <= w; k++) kern.push(Math.exp(-0.5 * ((k * step) / sigma) ** 2));
+  const sm = new Float64Array(n);
+  for (let i = 0; i < n; i++) {
+    let sw = 0, sv = 0;
+    for (let k = -w; k <= w; k++) {
+      const j = i + k;
+      if (j < 0 || j >= n) continue;
+      sw += kern[k + w]; sv += kern[k + w] * raw[j];
+    }
+    sm[i] = sv / sw;
+  }
+  const m = rate * step;
+  for (let it = 0; it < 100; it++) {
+    let changed = false;
+    for (let i = 1; i < n; i++) {
+      const c = Math.min(sm[i - 1] + m, Math.max(sm[i - 1] - m, sm[i]));
+      if (c !== sm[i]) { sm[i] = c; changed = true; }
+    }
+    for (let i = n - 2; i >= 0; i--) {
+      const c = Math.min(sm[i + 1] + m, Math.max(sm[i + 1] - m, sm[i]));
+      if (c !== sm[i]) { sm[i] = c; changed = true; }
+    }
+    if (!changed) break;
+  }
+  return (s: number) => {
+    const f = Math.max(0, Math.min(n - 1, s / step));
+    const i = Math.floor(f), j = Math.min(n - 1, i + 1);
+    return sm[i] + (sm[j] - sm[i]) * (f - i);
+  };
+}
+
+/**
  * Pose all modules. `sCentre` is the chainage of the centre (trailer) truck — the
  * consist reference used by the game. `dir` = +1 when cab A leads toward increasing s.
  * `cantAt(s)` returns superelevation in metres (signed like curvature: + = left curve).

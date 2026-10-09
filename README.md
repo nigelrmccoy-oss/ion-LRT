@@ -1,10 +1,23 @@
-# ION LRT Simulator **v1.4**
+# ION LRT Simulator **v1.4.1**
 
 Playable browser / Electron cab simulator of the Waterloo Region **ION LRT** (GrandLinq / Keolis / GRT tribute), plus the **CN Waterloo Spur / WCR to Elmira** and **Kitchener–Guelph** heavy-rail routes.
 
 Built with **Vite + TypeScript + Three.js**. No Blender/Unity. No backend.
 
-## What’s new in v1.4
+## What’s new in v1.4.1 (QA fixes)
+
+- **P0 reversed elevation**: `Track.fromGeoJSON(..., reverse)` now reverses the stored height profile along with the vertices. v1.4.0 put Conestoga's heights at Fairway on the reversed route. Every route is checked against the DEM in both directions (`npm test` section o).
+- **Real directional ION tracks**: southbound and northbound now run on their own OSM lines (`public/data/ion-sb.geojson`, `ion-nb.geojson`, baked by `scripts/bake-ion-tracks.mjs` from the direction-tagged OSM ways). Northbound no longer runs on the southbound rails. Both lines are rendered with their own ballast, rails and contact wire. Where they run side by side, NB rail height is blended onto SB so the double track shares one formation.
+- **Platforms from OSM**: all 32 ION stops sit on their real OSM platform (`public/data/platforms.json`), on the correct side for the direction of travel. Platforms are curved strip meshes that follow the track (no more 14 m drift off a curve) and are kept clear of the other line. The stopping mark is the centre of the platform.
+- **Curve speed restriction**: the posted limit also includes a curve limit from TCRP Report 155: V = √((Eₐ+Eᵤ)·R / 11.8) with a 114 mm cant + cant-deficiency budget. R is measured over a ±30 m chord.
+- **Hold (standstill) brake**: it engages when the car stops (and always while the doors are open), so the car no longer rolls back on grades. W is ignored while traction is interlocked, so it no longer clears the brake. The HUD shows `HOLD`.
+- **Diesel cab camera**: the diesel model was rebuilt facing forward with a hollow, glazed cab. The eye now sits in the cab, not inside the long hood.
+- **Smoother ride**: the vertical profile is smoothed the same way in both directions (forward and reversed heights match exactly). Grade sawtooth is removed. Superelevation ramps in and out at ≤ 1:400.
+- **Roads**: the terrain is sunk under draped roads, so ground no longer bleeds through. Street-running roads stay below the rail head near Central, rails use `polygonOffset`, and shadow bias is tuned to remove acne.
+- **P2 polish**: minimap no longer overlaps the HUD; key presses are queued, so taps between frames are not lost; the destination sign is hidden in cab view; doors visibly slide open on the platform side; Cesium credits are removed when photoreal loading fails; the HUD resets on every run.
+- **Debug deep links** (see below).
+
+## What was new in v1.4
 
 - **Articulated Flexity Freedom**: 5 modules in the Bo′2Bo′ layout (power trucks under the cab modules, trailer truck under the centre module, two suspended modules). Every module is placed from the track spline at its truck/joint chainages, so the car bends through S-curves and stays inside its dynamic envelope (verified on a 25 m-radius S-curve in `npm test`).
 - **Terrain-following**: per-module pitch from rail heights at the truck wheelsets, small roll from superelevation on ballasted curves (none in street running). Cab camera rides in cab A; chase cam follows the lead module.
@@ -48,6 +61,21 @@ npm start
 
 With a token, the menu checkbox **Photoreal 3D scenery** loads Google Photorealistic 3D Tiles (Cesium ion asset 2275207). Your ion account must have that asset added (ion → Asset Depot → "Google Photorealistic 3D Tiles"). Usage is billed against your ion/Google quota. Tiles are streamed only (never cached to disk) and need an internet connection. The required **Google Maps** attribution and per-tile data credits are shown bottom-left while the option is on. Note: the token is compiled into the local `dist/` bundle by Vite (`dist/` and `release/` are gitignored), so do not share a build made with your token.
 
+### Debug URL parameters
+
+These work with `npm run dev`, e.g. `http://localhost:5173/?route=ion_northbound&s=4200&cam=chase`. A link with `route=` skips the menu and starts the run directly.
+
+| Param | Values | Meaning |
+|---|---|---|
+| `route` | `ion_southbound` · `ion_northbound` · `elmira` · `guelph` | Route to start |
+| `s` | metres | Start chainage along the route |
+| `cam` | `cab` · `chase` · `side` (or `0`–`2`) | Initial camera |
+| `dir` | `f` · `r` | Reverser preset (forward / reverse) |
+| `station` | station id from `stations.json` | Start at that station (instead of `s`) |
+| `weather` | `dry` · `rain` · `snow` | Weather |
+| `tod` | `day` · `dusk` · `night` | Time of day |
+| `tutorial` | `0` · `1` | Show the controls tutorial |
+
 ## Controls
 
 | Key | Action |
@@ -55,7 +83,7 @@ With a token, the menu checkbox **Photoreal 3D scenery** loads Google Photoreali
 | R | Reverser **N → F → R** |
 | W / ↑ | Power notch up |
 | S / ↓ | Brake notch up |
-| T | Doors (interlocked — no power when open; only when stopped) |
+| T | Doors (only when stopped; open on the platform side; hold brake applied while open) |
 | Space | Horn |
 | Shift | Sand (raises adhesion) |
 | P | Pantograph (ION only) |
@@ -90,7 +118,7 @@ Internal model is SI (kg, m, s, N). Inspired by classic MSTS / Open Rails `.eng`
 | Curve resistance | `curveResistance(curvature)` — 0.4 N/kN per degree of curve (AREMA-style), R ≥ 25 m |
 | Adhesion vs speed | `adhesionAt(v)` — Curtius–Kniffler shape × weather μ |
 
-Civil limits from ROW class: reserved ~70, street ~40, station ~25 km/h.
+Civil limits from ROW class: reserved ~70, street ~40, station ~25 km/h. Each limit is also capped by the curve limit (TCRP 155, 114 mm budget, 10 km/h minimum). A hold brake of 1.5 m/s² equivalent is applied at standstill (< 0.3 km/h with doors open).
 
 ## Terrain & elevation
 
@@ -105,10 +133,11 @@ ION: articulated 5-module Flexity Freedom (30.8 m × 2.65 m × 3.6 m, Bo′2Bo�
 ## Tests & build
 
 ```bash
-npm test     # 66 headless checks: physics, ROW, signals, articulation swept path, terrain corridor
+npm test     # 119 headless checks: physics, ROW, signals, articulation, terrain corridor, both-direction elevation, platforms, hold brake, curve limits, roads
 npm run build
+node scripts/bake-ion-tracks.mjs   # re-bake ION SB/NB lines + OSM platforms (Overpass; raw response cached in scripts/raw/)
 ```
 
 ## License / attribution
 
-Map data © OpenStreetMap contributors (ODbL). Cesium Ion imagery © Cesium / Bing as provided by your Ion account when enabled. Photorealistic 3D Tiles © Google Maps and the data providers shown on screen, streamed via Cesium ion when enabled. Fan-made simulator — not an official GRT/GrandLinq/Keolis/Metrolinx/CN product.
+Map data © OpenStreetMap contributors, available under the Open Database License (ODbL, https://www.openstreetmap.org/copyright). The ION track and platform geometry in `public/data/ion-*.geojson` and `platforms.json` is derived from OSM and is ODbL. Cesium Ion imagery © Cesium / Bing as provided by your Ion account when enabled. Photorealistic 3D Tiles © Google Maps and the data providers shown on screen, streamed via Cesium ion when enabled. Fan-made simulator — not an official GRT/GrandLinq/Keolis/Metrolinx/CN product.

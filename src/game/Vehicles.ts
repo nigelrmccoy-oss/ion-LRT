@@ -65,6 +65,8 @@ export function createFlexityArticulated(): ArticulatedLRV {
     color: 0x87b8d8, map: makeWindowTex(), metalness: 0.15, roughness: 0.08, transparent: true, opacity: 0.55,
   });
   const bogieMat = new THREE.MeshStandardMaterial({ color: 0x222224, metalness: 0.5, roughness: 0.6 });
+  const doorMat = new THREE.MeshStandardMaterial({ color: 0x3c4450, metalness: 0.5, roughness: 0.4 });
+  const doorway = new THREE.MeshStandardMaterial({ color: 0x0c0d10, roughness: 1 });
 
   const w = LRV_WIDTH_M;
   const floor = LRV_FLOOR_ATR_M;
@@ -100,8 +102,15 @@ export function createFlexityArticulated(): ArticulatedLRV {
     // doors: 4 per side over the vehicle → one door per side on B, D and on cab modules
     if (i !== 2) {
       for (const side of [-1, 1]) {
-        const door = new THREE.Mesh(new THREE.BoxGeometry(0.05, 2.0, 1.3), black);
-        door.position.set(side * (w / 2 + 0.01), floor + 1.0, isCab ? (i === 0 ? -1.4 : 1.4) : 0);
+        const dz = isCab ? (i === 0 ? -1.4 : 1.4) : 0;
+        // dark doorway behind the leaf — visible once the plug door slides open
+        const opening = new THREE.Mesh(new THREE.BoxGeometry(0.04, 2.0, 1.3), doorway);
+        opening.position.set(side * (w / 2 - 0.005), floor + 1.0, dz);
+        mg.add(opening);
+        const door = new THREE.Mesh(new THREE.BoxGeometry(0.05, 2.0, 1.3), doorMat);
+        door.name = 'door';
+        door.position.set(side * (w / 2 + 0.02), floor + 1.0, dz);
+        door.userData = { side, baseX: door.position.x, baseZ: dz };
         mg.add(door);
       }
     }
@@ -122,6 +131,7 @@ export function createFlexityArticulated(): ArticulatedLRV {
       wind.rotation.x = -0.12;
       mg.add(wind);
       const dest = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.34, 0.06), black);
+      dest.name = 'destSign'; // hidden in the cab view (Game.updateCamera)
       dest.position.set(0, roofTop - 0.25, front * (m.len / 2 - 0.3));
       mg.add(dest);
     }
@@ -177,29 +187,65 @@ export function createFlexityArticulated(): ArticulatedLRV {
   return { group: g, modules, trucks };
 }
 
-/** Simple WCR-style diesel / tourist consist. */
+/**
+ * Diesel loco dimensions (model-local, forward = +z, origin = reference point on the
+ * track at top of tie). RS-18-like hood unit with the cab near the front.
+ */
+export const DIESEL_DIMS = {
+  hoodW: 2.6, hoodTop: 3.75, hoodZ0: -9.0, hoodZ1: 3.0, // long hood (behind the cab)
+  cabW: 3.0, cabTop: 4.35, cabZ0: 3.0, cabZ1: 6.0,     // cab (eye is inside)
+  noseTop: 2.9, noseZ1: 7.6,                            // short hood (below the eye line)
+  frameTop: 1.45,
+};
+/** Driver eye in the cab window: right-hand seat, above the short hood, behind the windscreen. */
+export const DIESEL_CAB_EYE = { x: -0.6, y: 3.55, z: 5.5 };
+
+/** Simple WCR / CN diesel consist: hood unit + one coach behind it (forward = +z). */
 export function createDieselConsist(kind: 'wcr' | 'cn'): THREE.Group {
   const g = new THREE.Group();
+  const D = DIESEL_DIMS;
   const bodyCol = kind === 'wcr' ? 0x2e5a3c : 0xb84a2a;
   const bodyMat = new THREE.MeshStandardMaterial({ color: bodyCol, metalness: 0.35, roughness: 0.5 });
   const black = new THREE.MeshStandardMaterial({ color: 0x222226, metalness: 0.4, roughness: 0.6 });
-  const loco = new THREE.Mesh(new THREE.BoxGeometry(3.0, 3.8, 14), bodyMat);
-  loco.position.set(0, 2.1, 0);
-  g.add(loco);
-  const cab = new THREE.Mesh(new THREE.BoxGeometry(3.0, 2.2, 3.2), black);
-  cab.position.set(0, 3.5, -6.5);
+  const glassMat = new THREE.MeshStandardMaterial({ color: 0x88aacc, transparent: true, opacity: 0.35, side: THREE.DoubleSide });
+  const box = (w: number, y0: number, y1: number, z0: number, z1: number, mat: THREE.Material, name = '') => {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(w, y1 - y0, z1 - z0), mat);
+    m.position.set(0, (y0 + y1) / 2, (z0 + z1) / 2);
+    if (name) m.name = name;
+    g.add(m);
+    return m;
+  };
+  box(3.0, 0.9, D.frameTop, D.hoodZ0 - 0.6, D.noseZ1 + 0.3, black, 'frame');
+  box(D.hoodW, D.frameTop, D.hoodTop, D.hoodZ0, D.hoodZ1, bodyMat, 'longHood');
+  box(D.hoodW * 0.85, D.frameTop, D.noseTop, D.cabZ1, D.noseZ1, bodyMat, 'shortHood');
+  // Cab as separate walls/roof (hollow), so the eye inside sees out through the windows
+  const cabH = D.cabTop - D.frameTop;
+  const wallT = 0.06;
+  const cab = new THREE.Group();
+  cab.name = 'cab';
+  const panel = (w: number, h: number, d: number, x: number, y: number, z: number, mat: THREE.Material) => {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+    m.position.set(x, y, z);
+    cab.add(m);
+  };
+  const midZ = (D.cabZ0 + D.cabZ1) / 2, len = D.cabZ1 - D.cabZ0;
+  panel(D.cabW, wallT, len, 0, D.cabTop, midZ, bodyMat); // roof
+  for (const sx of [-1, 1]) {
+    panel(wallT, 1.6, len, sx * D.cabW / 2, D.frameTop + 0.8, midZ, bodyMat); // lower side
+    panel(wallT, cabH - 2.6, len, sx * D.cabW / 2, D.cabTop - (cabH - 2.6) / 2, midZ, bodyMat); // above side window
+    panel(wallT, 1.0, len * 0.9, sx * D.cabW / 2, D.frameTop + 2.1, midZ, glassMat); // side window
+  }
+  panel(D.cabW, 1.85, wallT, 0, D.frameTop + 0.925, D.cabZ1, bodyMat); // front below windscreen
+  panel(D.cabW, 1.0, wallT, 0, D.frameTop + 2.35, D.cabZ1, glassMat); // windscreen
+  panel(D.cabW, D.cabTop - (D.frameTop + 2.85), wallT, 0, (D.cabTop + D.frameTop + 2.85) / 2, D.cabZ1, bodyMat);
+  panel(D.cabW, cabH, wallT, 0, D.frameTop + cabH / 2, D.cabZ0, bodyMat); // rear wall
   g.add(cab);
-  const glass = new THREE.Mesh(
-    new THREE.BoxGeometry(2.6, 1.0, 0.1),
-    new THREE.MeshStandardMaterial({ color: 0x88aacc, transparent: true, opacity: 0.5 }),
-  );
-  glass.position.set(0, 3.7, -8.1);
-  g.add(glass);
   const coach = new THREE.Mesh(
     new THREE.BoxGeometry(2.9, 3.6, 16),
     new THREE.MeshStandardMaterial({ color: 0xd8d0c4, metalness: 0.2, roughness: 0.7 }),
   );
-  coach.position.set(0, 2.0, 16);
+  coach.name = 'coach';
+  coach.position.set(0, 2.0, D.hoodZ0 - 1.2 - 8);
   g.add(coach);
   g.traverse((o) => {
     if ((o as THREE.Mesh).isMesh) (o as THREE.Mesh).castShadow = true;

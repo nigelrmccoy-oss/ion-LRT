@@ -6,8 +6,10 @@ import { WeatherFX } from './WeatherFX';
 import { Input } from './Input';
 import { AudioEngine } from './AudioEngine';
 import { createFlexityArticulated, createDieselConsist, type ArticulatedLRV } from './Vehicles';
-import { poseConsist, superelevationFor, type ConsistPose } from './Articulation';
+import { poseConsist, superelevationFor, buildCantProfile, type ConsistPose } from './Articulation';
 import { TRUCK_FROM_NOSE_M, LRV_LENGTH_M, LRV_FLOOR_ATR_M } from './Clearances';
+import { DIESEL_CAB_EYE } from './Vehicles';
+import type { OsmPlatform } from './PlatformLayout';
 import { PhotorealTiles } from './PhotorealTiles';
 import { TerrainSystem } from './Terrain';
 import { StationSystem, type StationDef } from './Stations';
@@ -90,13 +92,16 @@ export class Game {
     this.sun = new THREE.DirectionalLight(0xfff2d6, 1.1);
     this.sun.position.set(80, 120, 40);
     this.sun.castShadow = true;
-    this.sun.shadow.mapSize.set(1024, 1024);
+    this.sun.shadow.mapSize.set(2048, 2048);
     this.sun.shadow.camera.near = 10;
     this.sun.shadow.camera.far = 400;
     this.sun.shadow.camera.left = -80;
     this.sun.shadow.camera.right = 80;
     this.sun.shadow.camera.top = 80;
     this.sun.shadow.camera.bottom = -80;
+    // Shadow-acne fix (banding on LRV roofs): small depth bias + normal-offset bias
+    this.sun.shadow.bias = -0.0004;
+    this.sun.shadow.normalBias = 0.04;
     this.scene.add(this.sun);
 
     const miniEl = document.getElementById('minimap') as HTMLCanvasElement | null;
@@ -120,6 +125,12 @@ export class Game {
     runTutorial?: boolean;
     /** Try Google Photorealistic 3D Tiles via Cesium ion (needs token; falls back to OSM). */
     photoreal?: boolean;
+    /** Debug: start at this chainage (m, centre truck) instead of the station. */
+    startS?: number;
+    /** Debug: initial camera 0 cab / 1 chase / 2 trackside. */
+    cam?: 0 | 1 | 2;
+    /** Debug: initial reverser (1 forward, −1 reverse). */
+    dir?: 1 | -1;
   }) {
     this.onEnd = opts.onEnd;
     this.routeKey = opts.route;
@@ -131,6 +142,7 @@ export class Game {
     if (this.train) this.scene.remove(this.train);
     this.stats = { overspeed: 0, wheelslip: 0, stopAcc: [], started: performance.now(), redLights: 0 };
     this.lastAspectById.clear();
+    this.resetHud();
     this.tod = opts.tod;
     this.applyTod(opts.tod);
     this.setupWeather(opts.weather);
@@ -156,33 +168,41 @@ export class Game {
     const stationsData = (await (await fetch('./data/stations.json')).json()) as StationsFile;
     const route = stationsData.routes[opts.route];
 
-    const ion = await Track.fromGeoJSON('./data/ion-track.geojson', this.elev, elevMeta.track_profiles.ion, 'ION LRT', false);
+    // Reference ION centreline: ROW segments, signals and OCS data are keyed to its chainage.
+    // Not rendered — trains run on the real direction-specific OSM lines below.
+    const ion = await Track.fromGeoJSON('./data/ion-track.geojson', this.elev, elevMeta.track_profiles.ion, 'ION reference', false);
+    const ionSb = await Track.fromGeoJSON('./data/ion-sb.geojson', this.elev, undefined, 'ION LRT southbound', false);
+    const ionNb = await Track.fromGeoJSON('./data/ion-nb.geojson', this.elev, undefined, 'ION LRT northbound', false);
+    ionNb.blendHeightsToward(ionSb); // shared formation on double track
+    for (const t of [ionSb, ionNb]) {
+      t.buildRefMap(ion);
+      t.rowLookup = (s, near) => this.row.at(t.refS(s), near, 0);
+    }
     const spur = await Track.fromGeoJSON('./data/waterloo-spur.geojson', this.elev, elevMeta.track_profiles.spur, 'Waterloo Spur', false);
     const guelph = await Track.fromGeoJSON('./data/guelph-sub.geojson', this.elev, elevMeta.track_profiles.guelph, 'Guelph Sub', false);
-    ion.rowLookup = (s, near) => this.row.at(s, near, 0);
-    this.allTracks = [ion, spur, guelph];
+    this.allTracks = [ionSb, ionNb, spur, guelph];
+    this.ionLines = [ionSb, ionNb];
     // Cut/fill corridors first so the heightfield is corrected before any mesh is draped
     this.terrain.setCorridors(this.allTracks);
     for (const t of this.allTracks) this.terrain.buildRails(t);
 
     const reverse = !!route.reverse;
-    const trackFile = route.track || 'ion-track.geojson';
-    let profile = elevMeta.track_profiles.ion;
+    const trackFile = route.track || 'ion-sb.geojson';
+    const byFile: Record<string, Track> = {
+      'ion-sb.geojson': ionSb, 'ion-nb.geojson': ionNb, 'waterloo-spur.geojson': spur, 'guelph-sub.geojson': guelph,
+    };
+    let profile: number[] | undefined;
     if (trackFile.includes('spur')) profile = elevMeta.track_profiles.spur;
     if (trackFile.includes('guelph')) profile = elevMeta.track_profiles.guelph;
-    this.track = await Track.fromGeoJSON(`./data/${trackFile}`, this.elev, profile, route.name, reverse);
+    if (trackFile === 'ion-track.geojson') profile = elevMeta.track_profiles.ion;
+    this.track = !reverse && byFile[trackFile]
+      ? byFile[trackFile]
+      : await Track.fromGeoJSON(`./data/${trackFile}`, this.elev, profile, route.name, reverse);
+    this.track.name = route.name.includes('ION') || trackFile.includes('ion') ? `ION ${route.name}` : route.name;
 
     if (trackFile.includes('spur')) this.activeLineKey = 'spur';
     else if (trackFile.includes('guelph')) this.activeLineKey = 'guelph';
     else this.activeLineKey = 'ion';
-
-    if (this.activeLineKey === 'ion') {
-      const ionLen = ion.length;
-      this.track.rowLookup = (s, near) => {
-        const sFwd = reverse ? ionLen - s : s;
-        return this.row.at(sFwd, near, 0);
-      };
-    }
 
     // Path length may change after elevation smooth/densify — refresh station chainage
     for (const st of route.stations) {
@@ -190,11 +210,18 @@ export class Game {
         st.distance_m = Math.round(this.track.nearestS(st.lon, st.lat));
       }
     }
+    let platforms: OsmPlatform[] = [];
+    try {
+      platforms = ((await (await fetch('./data/platforms.json')).json()) as { platforms: OsmPlatform[] }).platforms;
+    } catch { platforms = []; }
     this.stations.build(route.stations, this.track, this.elev, {
-      reverse,
       heavyRail: !trackFile.includes('ion'),
       groundAt: (x, z) => this.terrain.ground.exactHeight(x, z),
+      platforms,
+      otherTracks: this.allTracks.filter((t) => t !== this.track),
     });
+    // Cant with spiral run-off (no instant sign flip at reverse-curve inflections)
+    this.cantFn = buildCantProfile(this.track.length, this.rawCantAt);
     this.scene.add(this.stations.group);
 
     const electric = route.vehicle === 'flexity';
@@ -222,14 +249,17 @@ export class Game {
     }
     this.scene.add(this.train);
 
-    this.terrain.buildTrafficSignals(this.activeLineKey === 'ion' ? ion : null);
+    this.terrain.buildTrafficSignals([ionSb, ionNb]);
     this.terrain.buildCrossings({ ion, spur, guelph });
 
     // Photoreal scenery (optional): Google Photorealistic 3D Tiles through Cesium ion
     this.scene.remove(this.photoreal.root);
     this.photoreal.dispose();
     this.terrain.setPhotorealMode(false);
-    this.photoreal.onFailure = () => this.terrain.setPhotorealMode(false);
+    this.photoreal.onFailure = () => {
+      this.terrain.setPhotorealMode(false);
+      this.photoreal.showAttribution(false); // no Google credit once tiles are gone
+    };
     if (opts.photoreal) {
       const ok = await this.photoreal.init(this.camera, this.renderer, this.elev.baseElev);
       if (ok) {
@@ -241,7 +271,10 @@ export class Game {
 
     const startSt = route.stations.find((s) => s.id === opts.startStationId) || route.stations[0];
     // s = chainage of the centre (trailer) truck; keep both noses on the rails
-    this.s = this.clampS(startSt.distance_m);
+    this.s = this.clampS(Number.isFinite(opts.startS) ? (opts.startS as number) : startSt.distance_m);
+    if (opts.cam !== undefined) this.camMode = opts.cam;
+    if (opts.dir) this.physics.reverser = opts.dir;
+    this.setDoorsVisual(false);
     this.physics.speed = 0;
     // Short dwell; cleared early once reverser is Forward
     this.dwellUntil = this.clock.elapsedTime + 0.75;
@@ -293,12 +326,12 @@ export class Game {
   }
 
   private handleInput(_dt: number) {
-    const edgeKeys = ['KeyR', 'KeyT', 'KeyW', 'KeyS', 'ArrowUp', 'ArrowDown', 'Enter', 'Space', 'KeyP', 'KeyC'];
-    for (const code of edgeKeys) {
-      if (this.input.consumeEdge(code)) {
-        this.tutorial.onKey(code);
-        this.handleCabKey(code);
-      }
+    const edgeKeys = new Set(['KeyR', 'KeyT', 'KeyW', 'KeyS', 'ArrowUp', 'ArrowDown', 'Enter', 'Space', 'KeyP', 'KeyC']);
+    // every press in arrival order (queue) — none lost at low frame rates
+    for (const code of this.input.drainEdges()) {
+      if (!edgeKeys.has(code)) continue;
+      this.tutorial.onKey(code);
+      this.handleCabKey(code);
     }
     this.physics.sanding = this.input.pressed('ShiftLeft') || this.input.pressed('ShiftRight');
     this.input.consumeLook();
@@ -306,6 +339,13 @@ export class Game {
 
   private handleCabKey(code: string) {
     if (code === 'KeyW' || code === 'ArrowUp') {
+      // Traction interlocked (doors / neutral / vigilance / panto): W must not release the
+      // brake — v1.4.0 cleared B4 here and the car rolled back with the doors open.
+      if (this.physics.powerBlockedReason()) {
+        this.physics.resetVigilance();
+        this.audio.ensure();
+        return;
+      }
       this.physics.brakeNotch = 0;
       this.physics.powerNotch = Math.min(8, this.physics.powerNotch + 1);
       this.physics.resetVigilance();
@@ -323,15 +363,17 @@ export class Game {
       if (this.physics.reverser === 1) this.dwellUntil = 0;
     }
     if (code === 'KeyT') {
-      if (Math.abs(this.physics.speed) < 0.3) {
-        const opening = !this.physics.doorsOpen;
-        this.physics.doorsOpen = opening;
-        if (opening) {
-          this.physics.powerNotch = 0;
-          this.audio.doorOpen();
-        } else {
-          this.audio.doorClose();
-        }
+      if (this.physics.doorsOpen) {
+        // closing is always allowed (the hold brake keeps the car stopped meanwhile)
+        this.physics.doorsOpen = false;
+        this.audio.doorClose();
+        this.setDoorsVisual(false);
+      } else if (Math.abs(this.physics.speed) < 0.3) {
+        this.physics.doorsOpen = true;
+        this.physics.powerNotch = 0;
+        this.physics.holdBrake = true;
+        this.audio.doorOpen();
+        this.setDoorsVisual(true);
       }
       this.physics.resetVigilance();
     }
@@ -358,7 +400,38 @@ export class Game {
     return Math.min(hi, Math.max(lo, s));
   }
 
+  /** Platform side (+1 right / −1 left of travel) at the nearest station, else right. */
+  private doorSide(): 1 | -1 {
+    const st = this.stations.nearStation(this.s, 80);
+    return st?.platformSide ?? 1;
+  }
+
+  /** Animate the plug doors: slide open on the platform side only. */
+  private setDoorsVisual(open: boolean) {
+    if (!this.lrv) return;
+    const side = this.doorSide();
+    // vehicle "left" in module space is +x (forward = +z); right of travel = −x
+    const sideX = side > 0 ? -1 : 1;
+    for (const m of this.lrv.modules) {
+      m.traverse((o) => {
+        if (o.name !== 'door') return;
+        const u = o.userData as { side: number; baseX: number; baseZ: number };
+        const isOpen = open && u.side === sideX;
+        o.position.x = u.baseX + (isOpen ? u.side * 0.09 : 0);
+        o.position.z = u.baseZ + (isOpen ? 0.72 : 0);
+      });
+    }
+  }
+
+  private ionLines: Track[] = [];
+  private cantFn: ((s: number) => number) | null = null;
+
   private cantAt = (s: number): number => {
+    if (this.cantFn) return this.cantFn(Math.max(0, Math.min(this.track.length, s)));
+    return this.rawCantAt(s);
+  };
+
+  private rawCantAt = (s: number): number => {
     const p = this.track.sample(Math.max(0, Math.min(this.track.length, s)));
     const near = !!this.stations.nearStation(s, 60);
     const row = this.track.rowClassAt(Math.max(0, Math.min(this.track.length, s)), near);
@@ -388,10 +461,10 @@ export class Game {
     return pose;
   }
 
+  /** Chainage on the reference ION line (ROW / signals / OCS are keyed to it). */
   private ionForwardS(): number {
     if (this.activeLineKey !== 'ion') return this.s;
-    if (this.routeKey === 'ion_northbound') return this.track.length - this.s;
-    return this.s;
+    return this.track.refS(this.s);
   }
 
   private loop = () => {
@@ -511,6 +584,8 @@ export class Game {
     if (this.lrv && this.pose) {
       const lead = this.pose.modules[0];
       const leadObj = this.lrv.modules[0];
+      const dest = leadObj.getObjectByName('destSign');
+      if (dest) dest.visible = this.camMode !== 0; // exterior sign would black out the cab view
       if (this.camMode === 0) {
         // Driver's eye in cab A: ~1.6 m behind the nose, seated eye ≈ floor + 1.9 m
         const eye = new THREE.Vector3(0.35, LRV_FLOOR_ATR_M + 1.9, lead.len / 2 - 1.6);
@@ -532,17 +607,15 @@ export class Game {
       }
       return;
     }
-    const cabHeight = this.physics.electric ? 2.4 : 3.2;
-    const cabForward = this.physics.electric ? -14.5 : -7.5;
     if (this.camMode === 0) {
-      const hx = Math.sin(p.heading), hz = Math.cos(p.heading);
-      const cx = p.x + hx * cabForward;
-      const cz = p.z + hz * cabForward;
-      this.camera.position.set(cx, p.y + cabHeight, cz);
-      this.camera.rotation.order = 'YXZ';
-      this.camera.rotation.y = p.heading + Math.PI + this.input.lookYaw;
-      this.camera.rotation.x = this.input.lookPitch;
-      this.camera.rotation.z = 0;
+      // Driver's eye in the loco cab window (model-local, forward = +z), see Vehicles.DIESEL_CAB_EYE.
+      // v1.4.0 put the eye 7.5 m *behind* the reference inside the long hood → solid colour.
+      this.train.updateMatrixWorld();
+      const eye = new THREE.Vector3(DIESEL_CAB_EYE.x, DIESEL_CAB_EYE.y, DIESEL_CAB_EYE.z);
+      this.camera.position.copy(eye.applyMatrix4(this.train.matrixWorld));
+      this.tmpE.set(this.input.lookPitch, Math.PI + this.input.lookYaw, 0, 'YXZ');
+      this.camQ.setFromEuler(this.tmpE);
+      this.camera.quaternion.copy(this.train.quaternion).multiply(this.camQ);
     } else if (this.camMode === 1) {
       const hx = Math.sin(p.heading), hz = Math.cos(p.heading);
       this.camera.position.set(p.x - hx * 28, p.y + 8, p.z - hz * 28);
@@ -557,7 +630,7 @@ export class Game {
   private updateHud(limit: number, row: string, aspect: SignalAspect | null, heading: number) {
     this.hud.speedVal.textContent = String(Math.round(this.physics.speedKmh()));
     this.hud.powerVal.textContent = String(this.physics.powerNotch);
-    this.hud.brakeVal.textContent = String(this.physics.brakeNotch);
+    this.hud.brakeVal.textContent = String(this.physics.brakeNotch) + (this.physics.holdBrake ? ' HOLD' : '');
     this.hud.limitVal.textContent = String(limit);
     if (this.hud.weather) {
       const label = this.weather === 'dry' ? 'Dry' : this.weather === 'rain' ? 'Rain' : 'Snow';
@@ -606,6 +679,21 @@ export class Game {
       s: this.s,
       heading,
     });
+  }
+
+  /** Blank the HUD while a route loads (no stale values from the previous run). */
+  private resetHud() {
+    const dash = (el?: HTMLElement) => { if (el) el.textContent = '—'; };
+    for (const k of ['speedVal', 'powerVal', 'brakeVal', 'limitVal', 'signalVal', 'clock', 'voltage', 'reverser', 'rowVal', 'vigVal']) dash(this.hud[k]);
+    if (this.hud.speedVal) this.hud.speedVal.textContent = '0';
+    if (this.hud.nextStation) this.hud.nextStation.textContent = 'Loading route…';
+    if (this.hud.doors) this.hud.doors.textContent = '';
+    if (this.hud.panto) this.hud.panto.textContent = '';
+    if (this.hud.slip) this.hud.slip.className = 'lamp off';
+    if (this.hud.blockVal) {
+      this.hud.blockVal.textContent = '';
+      this.hud.blockVal.parentElement?.classList.add('hidden');
+    }
   }
 
   stop() {

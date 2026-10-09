@@ -1,4 +1,4 @@
-# ION LRT Sim — Clearances & dimensions (v1.4)
+# ION LRT Sim — Clearances & dimensions (v1.4.1)
 
 All geometry constants live in [`src/game/Clearances.ts`](../src/game/Clearances.ts). This table lists each value, where it is used, and its public source.
 
@@ -30,6 +30,7 @@ No source in this file is invented. If a URL is listed, the value was read from 
 
 | Item | Value used | Status | Source |
 |---|---|---|---|
+| Platform geometry / side | OSM platform outline per stop (`platform_osm` in stations.json); 65 m box only as fallback | Sourced (OSM, ODbL) | https://www.openstreetmap.org — `railway=platform` ways near each ION stop, baked by `scripts/bake-ion-tracks.mjs` |
 | Platform length | 65 m | Sourced | Stage 2 ION EPR §4.2.2 / Table 4-3 ("generally 65 m … consistent with Stage 1 ION stations") |
 | Platform width (single direction) | 3.5 m (min 2.5) | Sourced | Stage 2 ION EPR Table 4-3 |
 | Platform height above TOR | 0.30 m | Proxy + Secondary | Hamilton LRT TPAP update (City of Hamilton PED16171, Flexity-class level boarding): "approximately 300mm high above rail level" — https://www.thepublicrecord.ca/wp-content/uploads/2016/07/2016-Jul-26-Light-Rail-Transit-LRT-Transit-Project-Assessment-Process-TPAP-Update-PED16171.pdf . The fan site lrt.daxack.ca says ION platforms are about 20 cm above track — http://lrt.daxack.ca/Cities/RegionOfWaterloo/index.html . No ION primary document was found. |
@@ -83,6 +84,18 @@ No source in this file is invented. If a URL is listed, the value was read from 
 |---|---|---|---|
 | Curve resistance | 0.8 lb/short-ton per degree of curve (≈ 0.4 N/kN per degree, D = 1746.4 / R[m]) | ESTIMATE (commonly cited AREMA rule of thumb; not checked against the AREMA manual, which is not public) | — |
 | Adhesion vs speed | Curtius–Kniffler shape, normalised to the weather μ at standstill | ESTIMATE (textbook curve form) | — |
+
+## Physics / geometry constants added in v1.4.1
+
+| Item | Value | Status | Source |
+|---|---|---|---|
+| Curve speed | V[km/h] = √((Eₐ+Eᵤ)[mm] · R[m] / 11.8) | Sourced (formula) | TCRP Report 155, *Track Design Handbook for Light Rail Transit*, 2nd ed. (2012), Ch. 3 — https://www.nationalacademies.org/publications/22800 (DOI 10.17226/22800) |
+| Eₐ + Eᵤ budget | 114 mm (4.5 in) | Sourced range, upper end chosen | TCRP 155 gives 3–4.5 in of combined cant and cant deficiency for LRT. ION's actual design value is not published |
+| Curve radius measurement | 3-point circumradius over ±30 m, min over ±18 m; 5 km/h steps < 30, 10 km/h above; floor 10 km/h | ESTIMATE (sim smoothing of OSM vertex noise) | — |
+| Superelevation run-off | ≤ 1:400 (cant change per metre), Gaussian σ = 12 m | ESTIMATE | Typical practice. The DCM run-off ratios were not reviewed in full |
+| Hold (standstill) brake | engages < 0.3 m/s (doors open / interlocked) or at standstill; 1.5 m/s² equivalent force; releases when TE in the selected direction exceeds the grade force and the doors are closed | ESTIMATE | Typical LRV hold-brake behaviour. Flexity Freedom values are not published |
+| Rail bed above DEM | 0.35 m | ESTIMATE | Sim value (ballast + tie + rail) |
+| Road sink under draped roads | 0.35 m | Sim rendering value | — |
 
 ## Not applied (and why)
 

@@ -50,12 +50,100 @@ export const SLOPE_REACH_M = 18;
 /** Cut/fill slopes may continue onto the coarse terrain this far past the ribbon (m). */
 export const SLOPE_EXTRA_M = 12;
 const CELL = 25;
+/** Terrain-mesh vertices and ribbon slopes under/near a road are lowered this much (m). */
+export const ROAD_SINK_M = 0.35;
+const ROAD_CELL = 40;
+
+type RoadSeg = { ax: number; az: number; bx: number; bz: number; hw: number };
 
 export class GroundModel {
   dem: HeightSource;
   tracks: CorridorTrack[] = [];
   private hash = new Map<string, { t: number; i: number }[]>();
   private gridCache = new Map<string, number>();
+  private roadHash = new Map<string, RoadSeg[]>();
+
+  /** Register OSM road centrelines (local x,z) so the terrain can be sunk under them. */
+  setRoads(roads: { coords: number[][]; width: number }[]) {
+    this.roadHash.clear();
+    for (const r of roads) {
+      const hw = r.width / 2;
+      for (let i = 0; i + 1 < r.coords.length; i++) {
+        const [ax, az] = r.coords[i], [bx, bz] = r.coords[i + 1];
+        const seg = { ax, az, bx, bz, hw };
+        const pad = hw + GRID_M * 2;
+        const x0 = Math.floor((Math.min(ax, bx) - pad) / ROAD_CELL), x1 = Math.floor((Math.max(ax, bx) + pad) / ROAD_CELL);
+        const z0 = Math.floor((Math.min(az, bz) - pad) / ROAD_CELL), z1 = Math.floor((Math.max(az, bz) + pad) / ROAD_CELL);
+        for (let gx = x0; gx <= x1; gx++) for (let gz = z0; gz <= z1; gz++) {
+          const k = `${gx},${gz}`;
+          let arr = this.roadHash.get(k);
+          if (!arr) { arr = []; this.roadHash.set(k, arr); }
+          arr.push(seg);
+        }
+      }
+    }
+    this.gridCache.clear();
+  }
+
+  /**
+   * How far the coarse terrain / ribbon slopes are lowered at (x,z): full ROAD_SINK_M within
+   * road half-width + one grid diagonal (so no mesh triangle touching the road can rise
+   * above it), fading to 0 over the next 2 m.
+   */
+  roadSink(x: number, z: number): number {
+    const arr = this.roadHash.get(`${Math.floor(x / ROAD_CELL)},${Math.floor(z / ROAD_CELL)}`);
+    if (!arr) return 0;
+    let best = 0;
+    for (const r of arr) {
+      const dx = r.bx - r.ax, dz = r.bz - r.az;
+      const L2 = dx * dx + dz * dz || 1e-9;
+      const t = Math.max(0, Math.min(1, ((x - r.ax) * dx + (z - r.az) * dz) / L2));
+      const d = Math.hypot(r.ax + dx * t - x, r.az + dz * t - z);
+      const inner = r.hw + GRID_M * Math.SQRT2;
+      const f = d <= inner ? 1 : Math.max(0, 1 - (d - inner) / 2);
+      if (f > best) best = f;
+      if (best >= 1) break;
+    }
+    return best * ROAD_SINK_M;
+  }
+
+  /**
+   * Road level where (x,z) lies on a track's flat zone (null elsewhere): street running →
+   * pavement (formation level, just under the rail head); ballasted level crossing → 4 cm
+   * above the ties so the rail heads still show.
+   */
+  flatZoneLevel(x: number, z: number): number | null {
+    let out: number | null = null;
+    for (const [t, n] of this.nearby(x, z, FORMATION_HALF_WIDTH_M + 2)) {
+      const f = this.frame(t, n.idx, x, z);
+      if (f.beyondEnd || f.c.bridge) continue;
+      if (f.lat > f.c.left || -f.lat > f.c.right) continue;
+      const lvl = f.c.street ? f.form - 0.01 : f.form + FORMATION_DEPTH_M + 0.04;
+      out = out === null ? lvl : Math.max(out, lvl);
+    }
+    return out;
+  }
+
+  /**
+   * Draped road surface height: smooth design surface + 4 cm (terrain mesh and ribbon
+   * slopes are sunk ROAD_SINK_M under roads, so they stay below between road vertices);
+   * on a track's flat zone the road takes the pavement / crossing level instead.
+   */
+  roadHeight(x: number, z: number): number {
+    const flat = this.flatZoneLevel(x, z);
+    if (flat !== null) return flat;
+    return Math.max(this.exactHeight(x, z), this.surfaceHeight(x, z) + ROAD_SINK_M * 0.5) + 0.04;
+  }
+
+  /** Distance from (x,z) to the nearest centreline sample of any track other than `track`. */
+  nearestOtherTrackDist(x: number, z: number, track: Track, reach = 12): number {
+    let best = Infinity;
+    for (const [t, n] of this.nearby(x, z, reach)) {
+      if (this.tracks[t].track === track) continue;
+      best = Math.min(best, Math.sqrt(n.d2));
+    }
+    return best;
+  }
 
   constructor(dem: HeightSource) {
     this.dem = dem;
@@ -225,6 +313,7 @@ export class GroundModel {
       }
       h = Math.min(hExact, lowest);
     }
+    h -= this.roadSink(x, z);
     this.gridCache.set(key, h);
     if (this.gridCache.size > 400000) this.gridCache.clear();
     return h;

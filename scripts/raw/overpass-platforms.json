@@ -1,0 +1,1080 @@
+{
+  "version": 0.6,
+  "generator": "Overpass API 0.7.62.11 87bfad18",
+  "osm3s": {
+    "timestamp_osm_base": "2026-10-09T02:08:20Z",
+    "copyright": "The data included in this document is from www.openstreetmap.org. The data is made available under ODbL."
+  },
+  "elements": [
+
+{
+  "type": "way",
+  "id": 137366391,
+  "bounds": {
+    "minlat": 43.4554267,
+    "minlon": -80.4939552,
+    "maxlat": 43.4566733,
+    "maxlon": -80.4903178
+  },
+  "geometry": [
+    { "lat": 43.4566733, "lon": -80.4903249 },
+    { "lat": 43.4566624, "lon": -80.4903196 },
+    { "lat": 43.4566587, "lon": -80.4903178 },
+    { "lat": 43.4566431, "lon": -80.4903325 },
+    { "lat": 43.4564387, "lon": -80.4909474 },
+    { "lat": 43.4564153, "lon": -80.4909495 },
+    { "lat": 43.4563959, "lon": -80.4910052 },
+    { "lat": 43.4563636, "lon": -80.4910993 },
+    { "lat": 43.4563550, "lon": -80.4911238 },
+    { "lat": 43.4563623, "lon": -80.4911385 },
+    { "lat": 43.4562503, "lon": -80.4914530 },
+    { "lat": 43.4561340, "lon": -80.4918158 },
+    { "lat": 43.4561140, "lon": -80.4918487 },
+    { "lat": 43.4561042, "lon": -80.4918832 },
+    { "lat": 43.4560740, "lon": -80.4919776 },
+    { "lat": 43.4560571, "lon": -80.4920351 },
+    { "lat": 43.4560576, "lon": -80.4920646 },
+    { "lat": 43.4560088, "lon": -80.4922072 },
+    { "lat": 43.4560035, "lon": -80.4922228 },
+    { "lat": 43.4559906, "lon": -80.4922141 },
+    { "lat": 43.4559209, "lon": -80.4924245 },
+    { "lat": 43.4559002, "lon": -80.4924453 },
+    { "lat": 43.4557734, "lon": -80.4928371 },
+    { "lat": 43.4557682, "lon": -80.4928625 },
+    { "lat": 43.4557612, "lon": -80.4928886 },
+    { "lat": 43.4556650, "lon": -80.4931756 },
+    { "lat": 43.4556393, "lon": -80.4932524 },
+    { "lat": 43.4555797, "lon": -80.4934301 },
+    { "lat": 43.4555833, "lon": -80.4934618 },
+    { "lat": 43.4555556, "lon": -80.4935483 },
+    { "lat": 43.4555246, "lon": -80.4935291 },
+    { "lat": 43.4555225, "lon": -80.4935356 },
+    { "lat": 43.4555126, "lon": -80.4935659 },
+    { "lat": 43.4554844, "lon": -80.4936562 },
+    { "lat": 43.4554715, "lon": -80.4936960 },
+    { "lat": 43.4554905, "lon": -80.4937168 },
+    { "lat": 43.4554535, "lon": -80.4938308 },
+    { "lat": 43.4554293, "lon": -80.4939110 },
+    { "lat": 43.4554267, "lon": -80.4939207 },
+    { "lat": 43.4554647, "lon": -80.4939552 },
+    { "lat": 43.4554710, "lon": -80.4939361 },
+    { "lat": 43.4555902, "lon": -80.4935754 },
+    { "lat": 43.4558153, "lon": -80.4928943 },
+    { "lat": 43.4558163, "lon": -80.4928913 },
+    { "lat": 43.4560374, "lon": -80.4922290 },
+    { "lat": 43.4560654, "lon": -80.4921450 },
+    { "lat": 43.4560818, "lon": -80.4920957 },
+    { "lat": 43.4563312, "lon": -80.4913441 },
+    { "lat": 43.4566733, "lon": -80.4903249 }
+  ],
+  "tags": {
+    "area": "yes",
+    "bench": "yes",
+    "bicycle": "dismount",
+    "bin": "yes",
+    "departures_board": "realtime",
+    "foot": "yes",
+    "motor_vehicle": "no",
+    "name": "Kitchener",
+    "network": "VIA Rail;GO Transit",
+    "operator": "GO Transit",
+    "operator:wikidata": "Q1357727",
+    "operator:wikipedia": "en:GO Transit",
+    "owner": "Metrolinx",
+    "public_transport": "platform",
+    "railway": "platform",
+    "shelter": "yes",
+    "surface": "paved",
+    "tactile_paving": "yes",
+    "train": "yes",
+    "wheelchair": "limited"
+  }
+},
+{
+  "type": "way",
+  "id": 466402907,
+  "bounds": {
+    "minlat": 43.4460495,
+    "minlon": -80.4840195,
+    "maxlat": 43.4465140,
+    "maxlon": -80.4830698
+  },
+  "geometry": [
+    { "lat": 43.4465140, "lon": -80.4840195 },
+    { "lat": 43.4464665, "lon": -80.4839223 },
+    { "lat": 43.4461425, "lon": -80.4832599 },
+    { "lat": 43.4460495, "lon": -80.4830698 }
+  ],
+  "tags": {
+    "bench": "yes",
+    "bin": "yes",
+    "highway": "footway",
+    "light_rail": "yes",
+    "lit": "yes",
+    "network": "Ion",
+    "network:short": "Ion",
+    "network:wikidata": "Q106676138",
+    "network:wikipedia": "en:Grand River Transit",
+    "operator": "Grand River Transit",
+    "operator:short": "GRT",
+    "operator:wikidata": "Q3459117",
+    "operator:wikipedia": "en:Grand River Transit",
+    "public_transport": "platform",
+    "railway": "platform",
+    "shelter": "yes",
+    "surface": "concrete",
+    "tactile_paving": "yes"
+  }
+},
+{
+  "type": "way",
+  "id": 532113393,
+  "bounds": {
+    "minlat": 43.4729408,
+    "minlon": -80.5414622,
+    "maxlat": 43.4735299,
+    "maxlon": -80.5408853
+  },
+  "geometry": [
+    { "lat": 43.4735206, "lon": -80.5414622 },
+    { "lat": 43.4735299, "lon": -80.5414430 },
+    { "lat": 43.4729505, "lon": -80.5408853 },
+    { "lat": 43.4729408, "lon": -80.5409039 },
+    { "lat": 43.4729809, "lon": -80.5409478 },
+    { "lat": 43.4734673, "lon": -80.5414162 },
+    { "lat": 43.4735206, "lon": -80.5414622 }
+  ],
+  "tags": {
+    "bench": "yes",
+    "bicycle": "dismount",
+    "bin": "yes",
+    "light_rail": "yes",
+    "lit": "yes",
+    "local_ref": "1",
+    "name": "Platform 1",
+    "network": "Ion",
+    "network:short": "Ion",
+    "network:wikidata": "Q106676138",
+    "network:wikipedia": "en:Grand River Transit",
+    "operator": "Grand River Transit",
+    "operator:short": "GRT",
+    "operator:wikidata": "Q3459117",
+    "operator:wikipedia": "en:Grand River Transit",
+    "public_transport": "platform",
+    "railway": "platform",
+    "ref": "6004",
+    "shelter": "yes",
+    "surface": "concrete",
+    "tactile_paving": "yes"
+  }
+},
+{
+  "type": "way",
+  "id": 657397944,
+  "bounds": {
+    "minlat": 43.4640806,
+    "minlon": -80.5233857,
+    "maxlat": 43.4642120,
+    "maxlon": -80.5225858
+  },
+  "geometry": [
+    { "lat": 43.4641844, "lon": -80.5225858 },
+    { "lat": 43.4641624, "lon": -80.5227321 },
+    { "lat": 43.4641552, "lon": -80.5227887 },
+    { "lat": 43.4640806, "lon": -80.5233789 },
+    { "lat": 43.4641082, "lon": -80.5233857 },
+    { "lat": 43.4642120, "lon": -80.5225926 },
+    { "lat": 43.4641844, "lon": -80.5225858 }
+  ],
+  "tags": {
+    "area": "yes",
+    "bench": "yes",
+    "bin": "yes",
+    "light_rail": "yes",
+    "lit": "yes",
+    "network": "Ion",
+    "network:short": "Ion",
+    "network:wikidata": "Q106676138",
+    "network:wikipedia": "en:Grand River Transit",
+    "operator": "Grand River Transit",
+    "operator:short": "GRT",
+    "operator:wikidata": "Q3459117",
+    "operator:wikipedia": "en:Grand River Transit",
+    "public_transport": "platform",
+    "railway": "platform",
+    "shelter": "yes",
+    "tactile_paving": "yes"
+  }
+},
+{
+  "type": "way",
+  "id": 690921055,
+  "bounds": {
+    "minlat": 43.4225062,
+    "minlon": -80.4634152,
+    "maxlat": 43.4231100,
+    "maxlon": -80.4627021
+  },
+  "geometry": [
+    { "lat": 43.4231100, "lon": -80.4634152 },
+    { "lat": 43.4230450, "lon": -80.4633385 },
+    { "lat": 43.4227474, "lon": -80.4629876 },
+    { "lat": 43.4226632, "lon": -80.4628881 },
+    { "lat": 43.4225326, "lon": -80.4627338 },
+    { "lat": 43.4225062, "lon": -80.4627021 }
+  ],
+  "tags": {
+    "bench": "yes",
+    "bin": "yes",
+    "highway": "footway",
+    "light_rail": "yes",
+    "lit": "yes",
+    "network": "Ion",
+    "network:short": "Ion",
+    "network:wikidata": "Q106676138",
+    "network:wikipedia": "en:Grand River Transit",
+    "operator": "Grand River Transit",
+    "operator:short": "GRT",
+    "operator:wikidata": "Q3459117",
+    "operator:wikipedia": "en:Grand River Transit",
+    "public_transport": "platform",
+    "railway": "platform",
+    "shelter": "yes",
+    "surface": "concrete",
+    "tactile_paving": "yes"
+  }
+},
+{
+  "type": "way",
+  "id": 690921802,
+  "bounds": {
+    "minlat": 43.4221884,
+    "minlon": -80.4423818,
+    "maxlat": 43.4223681,
+    "maxlon": -80.4413129
+  },
+  "geometry": [
+    { "lat": 43.4221884, "lon": -80.4423818 },
+    { "lat": 43.4222241, "lon": -80.4421696 },
+    { "lat": 43.4223092, "lon": -80.4416629 },
+    { "lat": 43.4223535, "lon": -80.4413999 },
+    { "lat": 43.4223681, "lon": -80.4413129 }
+  ],
+  "tags": {
+    "bench": "yes",
+    "departures_board": "realtime",
+    "highway": "platform",
+    "lit": "yes",
+    "local_ref": "1",
+    "network": "Grand River Transit; Ion",
+    "network:short": "GRT; Ion",
+    "network:wikidata": "Q3459117;Q106676138",
+    "network:wikipedia": "en:Grand River Transit",
+    "public_transport": "platform",
+    "railway": "platform",
+    "ref": "6108",
+    "shelter": "yes",
+    "tactile_paving": "yes",
+    "wheelchair": "yes"
+  }
+},
+{
+  "type": "way",
+  "id": 690922712,
+  "bounds": {
+    "minlat": 43.4332972,
+    "minlon": -80.4782612,
+    "maxlat": 43.4339029,
+    "maxlon": -80.4775348
+  },
+  "geometry": [
+    { "lat": 43.4339029, "lon": -80.4782612 },
+    { "lat": 43.4337916, "lon": -80.4781277 },
+    { "lat": 43.4333786, "lon": -80.4776325 },
+    { "lat": 43.4332972, "lon": -80.4775348 }
+  ],
+  "tags": {
+    "bench": "yes",
+    "bin": "yes",
+    "lit": "yes",
+    "network": "Grand River Transit; Ion",
+    "network:short": "GRT; Ion",
+    "network:wikidata": "Q3459117;Q106676138",
+    "network:wikipedia": "en:Grand River Transit",
+    "public_transport": "platform",
+    "railway": "platform",
+    "ref": "1;2",
+    "shelter": "yes",
+    "tactile_paving": "yes"
+  }
+},
+{
+  "type": "way",
+  "id": 696298644,
+  "bounds": {
+    "minlat": 43.4686108,
+    "minlon": -80.5348025,
+    "maxlat": 43.4690779,
+    "maxlon": -80.5339961
+  },
+  "geometry": [
+    { "lat": 43.4686229, "lon": -80.5339961 },
+    { "lat": 43.4690779, "lon": -80.5347837 },
+    { "lat": 43.4690657, "lon": -80.5348025 },
+    { "lat": 43.4690260, "lon": -80.5347412 },
+    { "lat": 43.4686622, "lon": -80.5341102 },
+    { "lat": 43.4686108, "lon": -80.5340096 },
+    { "lat": 43.4686229, "lon": -80.5339961 }
+  ],
+  "tags": {
+    "bench": "yes",
+    "bicycle": "dismount",
+    "bin": "yes",
+    "departures_board": "realtime",
+    "light_rail": "yes",
+    "lit": "yes",
+    "local_ref": "1",
+    "name": "Platform 1",
+    "network": "Ion",
+    "network:short": "Ion",
+    "network:wikidata": "Q106676138",
+    "network:wikipedia": "en:Grand River Transit",
+    "operator": "Grand River Transit",
+    "operator:short": "GRT",
+    "operator:wikidata": "Q3459117",
+    "operator:wikipedia": "en:Grand River Transit",
+    "public_transport": "platform",
+    "railway": "platform",
+    "ref": "6005",
+    "shelter": "yes",
+    "surface": "concrete",
+    "tactile_paving": "yes"
+  }
+},
+{
+  "type": "way",
+  "id": 699821963,
+  "bounds": {
+    "minlat": 43.4812376,
+    "minlon": -80.5451854,
+    "maxlat": 43.4820192,
+    "maxlon": -80.5451248
+  },
+  "geometry": [
+    { "lat": 43.4812376, "lon": -80.5451248 },
+    { "lat": 43.4812591, "lon": -80.5451252 },
+    { "lat": 43.4819988, "lon": -80.5451839 },
+    { "lat": 43.4820192, "lon": -80.5451854 }
+  ],
+  "tags": {
+    "bench": "yes",
+    "bicycle": "dismount",
+    "bin": "yes",
+    "check_date:bench": "2023-05-05",
+    "departures_board": "realtime",
+    "highway": "footway",
+    "light_rail": "yes",
+    "lit": "yes",
+    "network": "Ion",
+    "network:short": "Ion",
+    "network:wikidata": "Q106676138",
+    "network:wikipedia": "en:Grand River Transit",
+    "operator": "Grand River Transit",
+    "operator:short": "GRT",
+    "operator:wikidata": "Q3459117",
+    "operator:wikipedia": "en:Grand River Transit",
+    "public_transport": "platform",
+    "railway": "platform",
+    "shelter": "yes",
+    "surface": "concrete",
+    "tactile_paving": "yes"
+  }
+},
+{
+  "type": "way",
+  "id": 729743029,
+  "bounds": {
+    "minlat": 43.4492912,
+    "minlon": -80.4875823,
+    "maxlat": 43.4499430,
+    "maxlon": -80.4871552
+  },
+  "geometry": [
+    { "lat": 43.4492912, "lon": -80.4875823 },
+    { "lat": 43.4495553, "lon": -80.4874016 },
+    { "lat": 43.4499167, "lon": -80.4871719 },
+    { "lat": 43.4499430, "lon": -80.4871552 }
+  ],
+  "tags": {
+    "bench": "yes",
+    "bin": "yes",
+    "light_rail": "yes",
+    "lit": "yes",
+    "network": "Ion",
+    "network:short": "Ion",
+    "network:wikidata": "Q106676138",
+    "network:wikipedia": "en:Grand River Transit",
+    "operator": "Grand River Transit",
+    "operator:short": "GRT",
+    "operator:wikidata": "Q3459117",
+    "operator:wikipedia": "en:Grand River Transit",
+    "public_transport": "platform",
+    "railway": "platform",
+    "shelter": "yes",
+    "surface": "concrete",
+    "tactile_paving": "yes"
+  }
+},
+{
+  "type": "way",
+  "id": 739451232,
+  "bounds": {
+    "minlat": 43.4529754,
+    "minlon": -80.4995513,
+    "maxlat": 43.4532080,
+    "maxlon": -80.4988191
+  },
+  "geometry": [
+    { "lat": 43.4532080, "lon": -80.4995513 },
+    { "lat": 43.4530862, "lon": -80.4991829 },
+    { "lat": 43.4529754, "lon": -80.4988191 }
+  ],
+  "tags": {
+    "bench": "yes",
+    "bicycle": "dismount",
+    "bin": "yes",
+    "departures_board": "realtime",
+    "highway": "footway",
+    "light_rail": "yes",
+    "lit": "yes",
+    "network": "Ion",
+    "network:short": "Ion",
+    "network:wikidata": "Q106676138",
+    "network:wikipedia": "en:Grand River Transit",
+    "operator": "Grand River Transit",
+    "operator:short": "GRT",
+    "operator:wikidata": "Q3459117",
+    "operator:wikipedia": "en:Grand River Transit",
+    "public_transport": "platform",
+    "railway": "platform",
+    "ref": "6009",
+    "shelter": "yes",
+    "surface": "concrete",
+    "tactile_paving": "yes"
+  }
+},
+{
+  "type": "way",
+  "id": 739451234,
+  "bounds": {
+    "minlat": 43.4531535,
+    "minlon": -80.4994467,
+    "maxlat": 43.4533901,
+    "maxlon": -80.4987131
+  },
+  "geometry": [
+    { "lat": 43.4533901, "lon": -80.4994467 },
+    { "lat": 43.4531535, "lon": -80.4987131 }
+  ],
+  "tags": {
+    "bench": "yes",
+    "bicycle": "dismount",
+    "bin": "yes",
+    "departures_board": "realtime",
+    "highway": "footway",
+    "light_rail": "yes",
+    "lit": "yes",
+    "network": "Ion",
+    "network:short": "Ion",
+    "network:wikidata": "Q106676138",
+    "network:wikipedia": "en:Grand River Transit",
+    "operator": "Grand River Transit",
+    "operator:short": "GRT",
+    "operator:wikidata": "Q3459117",
+    "operator:wikipedia": "en:Grand River Transit",
+    "public_transport": "platform",
+    "railway": "platform",
+    "ref": "6115",
+    "shelter": "yes",
+    "surface": "concrete",
+    "tactile_paving": "yes"
+  }
+},
+{
+  "type": "way",
+  "id": 743458294,
+  "bounds": {
+    "minlat": 43.4594472,
+    "minlon": -80.5189859,
+    "maxlat": 43.4602050,
+    "maxlon": -80.5176895
+  },
+  "geometry": [
+    { "lat": 43.4602050, "lon": -80.5189859 },
+    { "lat": 43.4599335, "lon": -80.5185215 },
+    { "lat": 43.4598028, "lon": -80.5182978 },
+    { "lat": 43.4594472, "lon": -80.5176895 }
+  ],
+  "tags": {
+    "bench": "yes",
+    "bin": "yes",
+    "departures_board": "realtime",
+    "light_rail": "yes",
+    "lit": "yes",
+    "network": "Ion",
+    "network:short": "Ion",
+    "network:wikidata": "Q106676138",
+    "network:wikipedia": "en:Grand River Transit",
+    "operator": "Grand River Transit",
+    "operator:short": "GRT",
+    "operator:wikidata": "Q3459117",
+    "operator:wikipedia": "en:Grand River Transit",
+    "public_transport": "platform",
+    "railway": "platform",
+    "shelter": "no",
+    "surface": "concrete",
+    "tactile_paving": "yes"
+  }
+},
+{
+  "type": "way",
+  "id": 744253497,
+  "bounds": {
+    "minlat": 43.4978036,
+    "minlon": -80.5296786,
+    "maxlat": 43.4984792,
+    "maxlon": -80.5293569
+  },
+  "geometry": [
+    { "lat": 43.4984792, "lon": -80.5296786 },
+    { "lat": 43.4983853, "lon": -80.5296296 },
+    { "lat": 43.4981468, "lon": -80.5295163 },
+    { "lat": 43.4979736, "lon": -80.5294359 },
+    { "lat": 43.4978036, "lon": -80.5293569 }
+  ],
+  "tags": {
+    "bench": "yes",
+    "bin": "yes",
+    "highway": "footway",
+    "lit": "yes",
+    "local_ref": "2",
+    "network": "Ion",
+    "network:wikidata": "Q106676138",
+    "public_transport": "platform",
+    "railway": "platform",
+    "ref": "6001",
+    "shelter": "yes",
+    "surface": "concrete",
+    "tactile_paving": "yes"
+  }
+},
+{
+  "type": "way",
+  "id": 744253498,
+  "bounds": {
+    "minlat": 43.4978362,
+    "minlon": -80.5295642,
+    "maxlat": 43.4985096,
+    "maxlon": -80.5292326
+  },
+  "geometry": [
+    { "lat": 43.4985096, "lon": -80.5295642 },
+    { "lat": 43.4984357, "lon": -80.5295296 },
+    { "lat": 43.4984109, "lon": -80.5295374 },
+    { "lat": 43.4981708, "lon": -80.5294184 },
+    { "lat": 43.4980303, "lon": -80.5293404 },
+    { "lat": 43.4978362, "lon": -80.5292326 }
+  ],
+  "tags": {
+    "bench": "yes",
+    "bin": "yes",
+    "highway": "footway",
+    "lit": "yes",
+    "local_ref": "1",
+    "network": "Ion",
+    "network:wikidata": "Q106676138",
+    "public_transport": "platform",
+    "railway": "platform",
+    "ref": "6001",
+    "shelter": "yes",
+    "surface": "concrete",
+    "tactile_paving": "yes"
+  }
+},
+{
+  "type": "way",
+  "id": 751178896,
+  "bounds": {
+    "minlat": 43.4968770,
+    "minlon": -80.5434183,
+    "maxlat": 43.4975521,
+    "maxlon": -80.5430045
+  },
+  "geometry": [
+    { "lat": 43.4975521, "lon": -80.5434183 },
+    { "lat": 43.4973217, "lon": -80.5432744 },
+    { "lat": 43.4968770, "lon": -80.5430045 }
+  ],
+  "tags": {
+    "bench": "yes",
+    "bin": "yes",
+    "check_date:bin": "2023-04-28",
+    "light_rail": "yes",
+    "lit": "yes",
+    "network": "Ion",
+    "network:short": "Ion",
+    "network:wikidata": "Q106676138",
+    "network:wikipedia": "en:Grand River Transit",
+    "operator": "Grand River Transit",
+    "operator:short": "GRT",
+    "operator:wikidata": "Q3459117",
+    "operator:wikipedia": "en:Grand River Transit",
+    "public_transport": "platform",
+    "railway": "platform",
+    "shelter": "yes",
+    "surface": "concrete",
+    "tactile_paving": "yes",
+    "width": "2"
+  }
+},
+{
+  "type": "way",
+  "id": 823658168,
+  "bounds": {
+    "minlat": 43.4571504,
+    "minlon": -80.5125787,
+    "maxlat": 43.4574668,
+    "maxlon": -80.5116175
+  },
+  "geometry": [
+    { "lat": 43.4574668, "lon": -80.5125787 },
+    { "lat": 43.4572278, "lon": -80.5118526 },
+    { "lat": 43.4571504, "lon": -80.5116175 }
+  ],
+  "tags": {
+    "bench": "yes",
+    "bin": "yes",
+    "light_rail": "yes",
+    "lit": "yes",
+    "network": "Ion",
+    "network:short": "Ion",
+    "network:wikidata": "Q106676138",
+    "network:wikipedia": "en:Grand River Transit",
+    "operator": "Grand River Transit",
+    "operator:short": "GRT",
+    "operator:wikidata": "Q3459117",
+    "operator:wikipedia": "en:Grand River Transit",
+    "public_transport": "platform",
+    "railway": "platform",
+    "shelter": "yes",
+    "tactile_paving": "yes"
+  }
+},
+{
+  "type": "way",
+  "id": 825518269,
+  "bounds": {
+    "minlat": 43.4517997,
+    "minlon": -80.4911612,
+    "maxlat": 43.4520811,
+    "maxlon": -80.4904631
+  },
+  "geometry": [
+    { "lat": 43.4520811, "lon": -80.4911612 },
+    { "lat": 43.4520737, "lon": -80.4911429 },
+    { "lat": 43.4520444, "lon": -80.4910700 },
+    { "lat": 43.4519277, "lon": -80.4907806 },
+    { "lat": 43.4518255, "lon": -80.4905271 },
+    { "lat": 43.4517997, "lon": -80.4904631 }
+  ],
+  "tags": {
+    "bench": "yes",
+    "bin": "yes",
+    "highway": "footway",
+    "light_rail": "yes",
+    "lit": "yes",
+    "network": "Ion",
+    "network:short": "Ion",
+    "network:wikidata": "Q106676138",
+    "network:wikipedia": "en:Grand River Transit",
+    "operator": "Grand River Transit",
+    "operator:short": "GRT",
+    "operator:wikidata": "Q3459117",
+    "operator:wikipedia": "en:Grand River Transit",
+    "public_transport": "platform",
+    "railway": "platform",
+    "shelter": "yes",
+    "smoothness": "excellent",
+    "surface": "concrete",
+    "tactile_paving": "yes"
+  }
+},
+{
+  "type": "way",
+  "id": 829507386,
+  "bounds": {
+    "minlat": 43.4984020,
+    "minlon": -80.5441216,
+    "maxlat": 43.4987523,
+    "maxlon": -80.5439136
+  },
+  "geometry": [
+    { "lat": 43.4987523, "lon": -80.5441216 },
+    { "lat": 43.4984020, "lon": -80.5439136 }
+  ],
+  "tags": {
+    "covered": "no",
+    "highway": "path",
+    "name": "Waterloo",
+    "note": "Does not operate during winter https://waterloocentralrailway.com/train-rides/heritage-hopper/, but still active",
+    "operator": "Waterloo Central Railway",
+    "operator:wikidata": "Q7974217",
+    "operator:wikipedia": "en:Waterloo Central Railway",
+    "owner": "Region of Waterloo",
+    "public_transport": "platform",
+    "railway": "platform"
+  }
+},
+{
+  "type": "way",
+  "id": 829567790,
+  "bounds": {
+    "minlat": 43.4618131,
+    "minlon": -80.5236533,
+    "maxlat": 43.4625012,
+    "maxlon": -80.5230956
+  },
+  "geometry": [
+    { "lat": 43.4625012, "lon": -80.5236533 },
+    { "lat": 43.4623914, "lon": -80.5235644 },
+    { "lat": 43.4622487, "lon": -80.5234487 },
+    { "lat": 43.4621759, "lon": -80.5233897 },
+    { "lat": 43.4620089, "lon": -80.5232543 },
+    { "lat": 43.4618131, "lon": -80.5230956 }
+  ],
+  "tags": {
+    "bench": "yes",
+    "bicycle": "dismount",
+    "bin": "yes",
+    "highway": "platform",
+    "lit": "yes",
+    "network": "Ion",
+    "network:short": "Ion",
+    "network:wikidata": "Q106676138",
+    "network:wikipedia": "en:Grand River Transit",
+    "operator": "Grand River Transit",
+    "operator:short": "GRT",
+    "operator:wikidata": "Q3459117",
+    "operator:wikipedia": "en:Grand River Transit",
+    "public_transport": "platform",
+    "railway": "platform",
+    "segregated": "no",
+    "shelter": "yes",
+    "surface": "concrete",
+    "tactile_paving": "yes"
+  }
+},
+{
+  "type": "way",
+  "id": 836238402,
+  "bounds": {
+    "minlat": 43.4485192,
+    "minlon": -80.4897914,
+    "maxlat": 43.4487578,
+    "maxlon": -80.4890645
+  },
+  "geometry": [
+    { "lat": 43.4487578, "lon": -80.4897914 },
+    { "lat": 43.4487504, "lon": -80.4897688 },
+    { "lat": 43.4486744, "lon": -80.4895374 },
+    { "lat": 43.4485208, "lon": -80.4890693 },
+    { "lat": 43.4485192, "lon": -80.4890645 }
+  ],
+  "tags": {
+    "bench": "yes",
+    "bin": "yes",
+    "highway": "footway",
+    "light_rail": "yes",
+    "network": "Ion",
+    "network:short": "Ion",
+    "network:wikidata": "Q106676138",
+    "network:wikipedia": "en:Grand River Transit",
+    "operator": "Grand River Transit",
+    "operator:short": "GRT",
+    "operator:wikidata": "Q3459117",
+    "operator:wikipedia": "en:Grand River Transit",
+    "public_transport": "platform",
+    "railway": "platform",
+    "shelter": "yes",
+    "surface": "concrete",
+    "tactile_paving": "yes"
+  }
+},
+{
+  "type": "way",
+  "id": 836238403,
+  "bounds": {
+    "minlat": 43.4500824,
+    "minlon": -80.4940749,
+    "maxlat": 43.4503136,
+    "maxlon": -80.4933453
+  },
+  "geometry": [
+    { "lat": 43.4500824, "lon": -80.4933453 },
+    { "lat": 43.4500884, "lon": -80.4933642 },
+    { "lat": 43.4501317, "lon": -80.4935011 },
+    { "lat": 43.4502405, "lon": -80.4938443 },
+    { "lat": 43.4502644, "lon": -80.4939198 },
+    { "lat": 43.4503136, "lon": -80.4940749 }
+  ],
+  "tags": {
+    "bench": "yes",
+    "bin": "yes",
+    "highway": "footway",
+    "light_rail": "yes",
+    "lit": "yes",
+    "network": "Ion",
+    "network:short": "Ion",
+    "network:wikidata": "Q106676138",
+    "network:wikipedia": "en:Grand River Transit",
+    "operator": "Grand River Transit",
+    "operator:short": "GRT",
+    "operator:wikidata": "Q3459117",
+    "operator:wikipedia": "en:Grand River Transit",
+    "public_transport": "platform",
+    "railway": "platform",
+    "shelter": "yes",
+    "surface": "concrete",
+    "tactile_paving": "yes"
+  }
+},
+{
+  "type": "way",
+  "id": 868483298,
+  "bounds": {
+    "minlat": 43.5096414,
+    "minlon": -80.5515265,
+    "maxlat": 43.5105648,
+    "maxlon": -80.5508504
+  },
+  "geometry": [
+    { "lat": 43.5105648, "lon": -80.5515265 },
+    { "lat": 43.5096645, "lon": -80.5509719 },
+    { "lat": 43.5096414, "lon": -80.5509314 },
+    { "lat": 43.5096439, "lon": -80.5508909 },
+    { "lat": 43.5096584, "lon": -80.5508504 }
+  ],
+  "tags": {
+    "highway": "path",
+    "operator": "Waterloo Central Railway",
+    "operator:wikidata": "Q7974217",
+    "operator:wikipedia": "en:Waterloo Central Railway",
+    "owner": "Region of Waterloo",
+    "public_transport": "platform",
+    "railway": "platform",
+    "shelter": "yes"
+  }
+},
+{
+  "type": "way",
+  "id": 1020715334,
+  "bounds": {
+    "minlat": 43.4729505,
+    "minlon": -80.5414430,
+    "maxlat": 43.4735393,
+    "maxlon": -80.5408667
+  },
+  "geometry": [
+    { "lat": 43.4735393, "lon": -80.5414239 },
+    { "lat": 43.4734911, "lon": -80.5413703 },
+    { "lat": 43.4730006, "lon": -80.5408996 },
+    { "lat": 43.4729602, "lon": -80.5408667 },
+    { "lat": 43.4729505, "lon": -80.5408853 },
+    { "lat": 43.4735299, "lon": -80.5414430 },
+    { "lat": 43.4735393, "lon": -80.5414239 }
+  ],
+  "tags": {
+    "bench": "yes",
+    "bicycle": "dismount",
+    "bin": "yes",
+    "light_rail": "yes",
+    "lit": "yes",
+    "local_ref": "2",
+    "name": "Platform 2",
+    "network": "Ion",
+    "network:short": "Ion",
+    "network:wikidata": "Q106676138",
+    "network:wikipedia": "en:Grand River Transit",
+    "operator": "Grand River Transit",
+    "operator:short": "GRT",
+    "operator:wikidata": "Q3459117",
+    "operator:wikipedia": "en:Grand River Transit",
+    "public_transport": "platform",
+    "railway": "platform",
+    "ref": "6120",
+    "shelter": "yes",
+    "surface": "concrete",
+    "tactile_paving": "yes"
+  }
+},
+{
+  "type": "way",
+  "id": 1022168432,
+  "bounds": {
+    "minlat": 43.4686229,
+    "minlon": -80.5347837,
+    "maxlat": 43.4690901,
+    "maxlon": -80.5339826
+  },
+  "geometry": [
+    { "lat": 43.4686229, "lon": -80.5339961 },
+    { "lat": 43.4686349, "lon": -80.5339826 },
+    { "lat": 43.4686953, "lon": -80.5340753 },
+    { "lat": 43.4690591, "lon": -80.5347047 },
+    { "lat": 43.4690901, "lon": -80.5347648 },
+    { "lat": 43.4690779, "lon": -80.5347837 },
+    { "lat": 43.4686229, "lon": -80.5339961 }
+  ],
+  "tags": {
+    "bench": "yes",
+    "bicycle": "dismount",
+    "bin": "yes",
+    "departures_board": "realtime",
+    "light_rail": "yes",
+    "lit": "yes",
+    "local_ref": "2",
+    "name": "Platform 2",
+    "network": "Ion",
+    "network:short": "Ion",
+    "network:wikidata": "Q106676138",
+    "network:wikipedia": "en:Grand River Transit",
+    "operator": "Grand River Transit",
+    "operator:short": "GRT",
+    "operator:wikidata": "Q3459117",
+    "operator:wikipedia": "en:Grand River Transit",
+    "public_transport": "platform",
+    "railway": "platform",
+    "ref": "6119",
+    "shelter": "yes",
+    "surface": "concrete",
+    "tactile_paving": "yes"
+  }
+},
+{
+  "type": "way",
+  "id": 1369817041,
+  "bounds": {
+    "minlat": 43.4222907,
+    "minlon": -80.4424132,
+    "maxlat": 43.4224704,
+    "maxlon": -80.4413460
+  },
+  "geometry": [
+    { "lat": 43.4222907, "lon": -80.4424132 },
+    { "lat": 43.4223067, "lon": -80.4423183 },
+    { "lat": 43.4224542, "lon": -80.4414421 },
+    { "lat": 43.4224704, "lon": -80.4413460 }
+  ],
+  "tags": {
+    "bench": "yes",
+    "departures_board": "realtime",
+    "highway": "footway",
+    "lit": "yes",
+    "local_ref": "2",
+    "network": "Grand River Transit; Ion",
+    "network:short": "GRT; Ion",
+    "network:wikidata": "Q3459117;Q106676138",
+    "network:wikipedia": "en:Grand River Transit",
+    "public_transport": "platform",
+    "railway": "platform",
+    "ref": "6108",
+    "shelter": "yes",
+    "surface": "concrete",
+    "tactile_paving": "yes",
+    "wheelchair": "yes"
+  }
+},
+{
+  "type": "relation",
+  "id": 16692801,
+  "bounds": {
+    "minlat": 43.4423013,
+    "minlon": -80.4759317,
+    "maxlat": 43.4425537,
+    "maxlon": -80.4749489
+  },
+  "tags": {
+    "bench": "yes",
+    "bin": "yes",
+    "lit": "yes",
+    "network": "Grand River Transit",
+    "network:short": "GRT",
+    "network:wikidata": "Q3459117",
+    "network:wikipedia": "en:Grand River Transit",
+    "operator": "Grand River Transit",
+    "operator:short": "GRT",
+    "operator:wikidata": "Q3459117",
+    "operator:wikipedia": "en:Grand River Transit",
+    "public_transport": "platform",
+    "railway": "platform",
+    "ref": "1;2",
+    "shelter": "yes",
+    "tactile_paving": "yes",
+    "type": "multipolygon"
+  }
+},
+{
+  "type": "relation",
+  "id": 18870230,
+  "bounds": {
+    "minlat": 43.4222734,
+    "minlon": -80.4424188,
+    "maxlat": 43.4224879,
+    "maxlon": -80.4413405
+  },
+  "tags": {
+    "bench": "yes",
+    "network": "Grand River Transit; Ion",
+    "network:short": "GRT; Ion",
+    "network:wikidata": "Q3459117;Q106676138",
+    "network:wikipedia": "en:Grand River Transit",
+    "operator": "Grand River Transit",
+    "operator:short": "GRT",
+    "operator:wikidata": "Q3459117",
+    "operator:wikipedia": "en:Grand River Transit",
+    "public_transport": "platform",
+    "railway": "platform",
+    "ref": "2",
+    "shelter": "yes",
+    "type": "multipolygon"
+  }
+},
+{
+  "type": "relation",
+  "id": 18870231,
+  "bounds": {
+    "minlat": 43.4221708,
+    "minlon": -80.4423874,
+    "maxlat": 43.4223857,
+    "maxlon": -80.4413073
+  },
+  "tags": {
+    "bench": "yes",
+    "network": "Grand River Transit; Ion",
+    "network:short": "GRT; Ion",
+    "network:wikidata": "Q3459117;Q106676138",
+    "network:wikipedia": "en:Grand River Transit",
+    "operator": "Grand River Transit",
+    "operator:short": "GRT",
+    "operator:wikidata": "Q3459117",
+    "operator:wikipedia": "en:Grand River Transit",
+    "public_transport": "platform",
+    "railway": "platform",
+    "ref": "1",
+    "shelter": "yes",
+    "type": "multipolygon"
+  }
+}
+
+  ]
+}

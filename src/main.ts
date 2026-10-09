@@ -75,7 +75,33 @@ function showMenu() {
   document.exitPointerLock?.();
 }
 
-startBtn.addEventListener('click', async () => {
+/**
+ * Debug / QA deep link: ?route=ion_southbound|ion_northbound|elmira|guelph
+ *   &s=<chainage m> &cam=cab|chase|side (or 0|1|2) &dir=f|r &station=<id>
+ *   &weather=dry|rain|snow &tod=day|dusk|night &tutorial=0|1
+ * Starts the run immediately (no menu click). Never touches the Cesium token.
+ */
+function readDeepLink() {
+  const q = new URLSearchParams(location.search);
+  const route = q.get('route');
+  if (!route) return null;
+  const camRaw = (q.get('cam') || '').toLowerCase();
+  const camMap: Record<string, 0 | 1 | 2> = { cab: 0, chase: 1, side: 2, trackside: 2, '0': 0, '1': 1, '2': 2 };
+  const dirRaw = (q.get('dir') || '').toLowerCase();
+  const sRaw = q.get('s');
+  return {
+    route,
+    s: sRaw !== null && sRaw !== '' && Number.isFinite(Number(sRaw)) ? Number(sRaw) : undefined,
+    cam: camRaw in camMap ? camMap[camRaw] : undefined,
+    dir: dirRaw === 'f' || dirRaw === '1' ? 1 as const : dirRaw === 'r' || dirRaw === '-1' ? -1 as const : undefined,
+    station: q.get('station') || undefined,
+    weather: q.get('weather') || undefined,
+    tod: q.get('tod') || undefined,
+    tutorial: q.get('tutorial') === '1',
+  };
+}
+
+async function startRun(extra: { startS?: number; cam?: 0 | 1 | 2; dir?: 1 | -1; runTutorial?: boolean } = {}) {
   menu.classList.add('hidden');
   endReport.classList.add('hidden');
   hudEl.classList.remove('hidden');
@@ -88,8 +114,11 @@ startBtn.addEventListener('click', async () => {
     startStationId: startSel.value,
     weather: weatherSel.value as Weather,
     tod: todSel.value as 'day' | 'dusk' | 'night',
-    runTutorial: tutorialOpt.checked,
+    runTutorial: extra.runTutorial ?? tutorialOpt.checked,
     photoreal: hasIonToken && photorealOpt.checked,
+    startS: extra.startS,
+    cam: extra.cam,
+    dir: extra.dir,
     onEnd: (html) => {
       endReport.innerHTML = html;
       endReport.classList.remove('hidden');
@@ -98,7 +127,9 @@ startBtn.addEventListener('click', async () => {
     },
   });
   canvas.focus();
-});
+}
+
+startBtn.addEventListener('click', () => { void startRun(); });
 
 window.addEventListener('keydown', (e) => {
   if (e.code !== 'Escape') return;
@@ -111,4 +142,15 @@ window.addEventListener('keydown', (e) => {
   showMenu();
 });
 
-initMenu().catch(console.error);
+initMenu()
+  .then(() => {
+    const dl = readDeepLink();
+    if (!dl || !stationsData?.routes?.[dl.route]) return;
+    routeSel.value = dl.route;
+    populateStations();
+    if (dl.station) startSel.value = dl.station;
+    if (dl.weather) weatherSel.value = dl.weather;
+    if (dl.tod) todSel.value = dl.tod;
+    void startRun({ startS: dl.s, cam: dl.cam, dir: dl.dir, runTutorial: dl.tutorial });
+  })
+  .catch(console.error);

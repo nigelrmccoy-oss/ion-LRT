@@ -37,6 +37,10 @@ export type RowClass = keyof typeof SPEED_LIMITS_KMH;
 
 /** Below this |v| (m/s) the car is treated as standing (static friction logic). */
 export const STANDSTILL_MS = 0.05;
+/** Hold brake engages below this speed when doors are open / traction interlocked (m/s ≈ 1 km/h). */
+export const HOLD_BRAKE_MS = 0.3;
+/** Hold-brake retarding capacity (m/s²) — holds the car on > 12 % grades. */
+export const HOLD_BRAKE_DECEL = 1.5;
 /** Flexity Freedom minimum horizontal curve radius (Bombardier spec / Stage 2 ION EPR Table 4-2). */
 export const MIN_CURVE_RADIUS_M = 25;
 
@@ -64,6 +68,28 @@ export function civilSpeedLimitKmh(
   return SPEED_LIMITS_KMH.reserved;
 }
 
+/**
+ * Curve equilibrium + unbalance budget for the curve-speed formula (mm). TCRP Report 155
+ * (Track Design Handbook for LRT, 2nd ed., §3.2.4/3.2.6) recommends Ea + Eu of 3–4.5 in
+ * (76–114 mm) for light rail; the sim uses the upper 114 mm.
+ */
+export const CURVE_EQ_BUDGET_MM = 114;
+/** Lowest posted curve restriction (km/h). */
+export const CURVE_LIMIT_MIN_KMH = 10;
+
+/**
+ * Curve speed limit (km/h) for radius R (m): TCRP 155 V = sqrt((Ea+Eu)·R / 3.96) in
+ * mph/in/ft, i.e. metric V[km/h] = sqrt((Ea+Eu)[mm] · R[m] / 11.8). Rounded down to 5 km/h.
+ * R 25 m → 15 km/h, R 50 m → 20 km/h, R 100 m → 30 km/h, R 300 m → 50 km/h, R ≥ 510 m → 70.
+ */
+export function curveSpeedLimitKmh(radiusM: number, budgetMm = CURVE_EQ_BUDGET_MM): number {
+  if (!Number.isFinite(radiusM) || radiusM <= 0) return 999;
+  const v = Math.sqrt((budgetMm * Math.max(MIN_CURVE_RADIUS_M, radiusM)) / 11.8);
+  // posted in 5 km/h steps below 30, 10 km/h steps above (fewer board changes)
+  const q = v < 30 ? Math.floor(v / 5) * 5 : Math.floor(v / 10) * 10;
+  return Math.max(CURVE_LIMIT_MIN_KMH, q);
+}
+
 export function isOverspeed(speedKmh: number, limitKmh: number, margin = 2): boolean {
   return speedKmh > limitKmh + margin;
 }
@@ -84,6 +110,13 @@ export class TrainPhysics {
   lineVoltage = 750;
   vigilanceTimer = 45;
   deadmanOk = true;
+  /**
+   * Automatic hold brake (standstill brake). Real LRVs apply it at standstill and keep it
+   * until tractive effort can overcome gravity in the selected direction. Also forced
+   * while the doors are open or traction is interlocked, so clearing the service brake
+   * can never let the car roll away (v1.4.0 rolled back at −1.5 km/h with doors open).
+   */
+  holdBrake = false;
 
   axleFrac: number;
 
@@ -189,6 +222,18 @@ export class TrainPhysics {
     const resist = this.davisResistance(this.speed) + this.curveResistance(curvature);
     const Fgrade = this.gradeForce(grade);
     const dir = this.reverser === 0 ? 0 : this.reverser;
+
+    // Hold brake: engage at standstill (or ≤ HOLD_BRAKE_MS with doors open / interlock),
+    // release only when TE in the selected direction beats the grade force.
+    const interlocked = !canPower || (this.electric && (!this.pantographUp || this.lineVoltage < 500));
+    const tractionWins = dir !== 0 && notchP > 0 && dir * (dir * te - Fgrade) > 0;
+    const slowEnough = Math.abs(this.speed) < (this.doorsOpen || interlocked ? HOLD_BRAKE_MS : STANDSTILL_MS);
+    if (tractionWins && !this.doorsOpen) this.holdBrake = false;
+    else if (slowEnough) this.holdBrake = true;
+    else if (Math.abs(this.speed) >= HOLD_BRAKE_MS) this.holdBrake = false;
+    if (this.holdBrake) {
+      Fbrake += this.massKg * HOLD_BRAKE_DECEL;
+    }
 
     let a: number;
     if (Math.abs(this.speed) < STANDSTILL_MS) {
