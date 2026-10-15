@@ -64,6 +64,7 @@ export function createFlexityArticulated(): ArticulatedLRV {
   const glass = new THREE.MeshStandardMaterial({
     color: 0x87b8d8, map: makeWindowTex(), metalness: 0.15, roughness: 0.08, transparent: true, opacity: 0.55,
   });
+  glass.name = 'lrvGlass'; // interior lighting glows through it at night (TrainLights)
   const bogieMat = new THREE.MeshStandardMaterial({ color: 0x222224, metalness: 0.5, roughness: 0.6 });
   const doorMat = new THREE.MeshStandardMaterial({ color: 0x3c4450, metalness: 0.5, roughness: 0.4 });
   const doorway = new THREE.MeshStandardMaterial({ color: 0x0c0d10, roughness: 1 });
@@ -252,6 +253,13 @@ export function createDieselConsist(kind: 'wcr' | 'cn'): THREE.Group {
   coach.name = 'coach';
   coach.position.set(0, 2.0, D.hoodZ0 - DIESEL_COACH.gap - DIESEL_COACH.len / 2);
   g.add(coach);
+  // coach window band (glows with the interior lights at night — TrainLights)
+  const coachGlass = new THREE.MeshStandardMaterial({ color: 0x2a3440, metalness: 0.2, roughness: 0.2 });
+  coachGlass.name = 'coachGlass';
+  const win = new THREE.Mesh(new THREE.BoxGeometry(2.94, 0.8, DIESEL_COACH.len - 2), coachGlass);
+  win.name = 'coachWindows';
+  win.position.set(0, 2.55, coach.position.z);
+  g.add(win);
   g.traverse((o) => {
     if ((o as THREE.Mesh).isMesh) (o as THREE.Mesh).castShadow = true;
   });

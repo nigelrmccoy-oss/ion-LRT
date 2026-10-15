@@ -1,10 +1,23 @@
-# ION LRT Simulator **v1.4.2**
+# ION LRT Simulator **v1.4.3**
 
 Playable browser / Electron cab simulator of the Waterloo Region **ION LRT** (GrandLinq / Keolis / GRT tribute), plus the **CN Waterloo Spur / WCR to Elmira** and **Kitchener–Guelph** heavy-rail routes.
 
 Built with **Vite + TypeScript + Three.js**. No Blender/Unity. No backend.
 
-## What’s new in v1.4.2 (end-to-end drive simulations)
+## What’s new in v1.4.3 (lights + Code Critic QA fixes on v1.4.2)
+
+- **Train lights**: the Flexity has dual white headlights with a light pool on the track ahead, red tail lights on the trailing cab, lit amber destination signs and interior lighting. The WCR/CN diesels have a headlight, ditch lights (they flash for 15 s after the horn or at an active crossing) and a flashing red rear marker. Lights come on automatically at dusk and night; **H** turns them on or off. Each train adds only one real-time light (the headlight beam, no shadows), so frame rate is unaffected.
+- **Minimum curve radius**: OSM vertex kinks gave sub-25 m curves (SB s≈8790 was R≈19 m, and the modules swung 1.84 m off the centreline). Each such spot is now refit by spreading the turn over its neighbouring vertices. The total turn is kept and the line rejoins OSM. All ION curves are now ≥ 26.6 m (±12 m three-point radius), the refit stays within 1.5 m of OSM, and module ends stay within 0.61 m of the centreline.
+- **Wet hill starts**: traction now uses creep-controlled wheel-slip control. On slip, tractive effort is held at 95 % of the adhesion limit (diesel 85 %) instead of collapsing to 35 %. Wheel-slide protection does the same for the brakes, and automatic sanding runs while slipping and for 3 s after. A rain P7 start at SB s=9535 (+4.9 %) now reaches 17 km/h in 12 s with no sand at all, and 21 km/h with automatic or manual sand. v1.4.2 stalled at 1.3 km/h. Shift still sands by hand. The control fractions are estimates.
+- **NB Fairway**: the NB line now runs to its stub end (it started 50 m short, mid-platform), so the stop mark sits on the OSM platform. It was 43 m off; now it is within 3 m. All 32 ION stop marks are within 10 m of their OSM platform centres.
+- **Station name signs** now have a readable face toward the track and another toward the platform (they used to read mirrored from the platform).
+- **Side camera** (C → trackside) now automatically follows the platform side of a nearby station, at platform eye level, so left-side platforms and their opening doors are visible. **V** cycles auto / left / right.
+- **Signal heads**: heads are associated with the line only within 30 m. On couplets, heads clearly nearer the other ION street are dropped (SB used to pick up heads up to 39.6 m away). No intersection with a head within 12 m of the track was lost.
+- **Snow**: 700 flakes instead of 900, with none within 2.5 m of the camera. Flakes right at the eye were drawn as screen-filling blended quads.
+- **Shader errors at Frederick** (one load, not reproducible): all shader programs are now compiled before the first frame (`renderer.compileAsync`), and a lost WebGL context is allowed to restore instead of leaving invalid programs. Toggling the lights never changes the scene's light count, so it never forces a recompile.
+- New debug URL parameters: `side`, `lights`, `autosand`, `slipctl`.
+
+## What was new in v1.4.2 (end-to-end drive simulations)
 
 `npm test` now drives every route end to end, headless: ION SB, ION NB, WCR to Elmira and Kitchener–Guelph, each in both directions, in dry, rain and snow (24 runs). The Flexity runs the ION routes and the diesel runs the heavy-rail routes. A simple automatic driver obeys the posted limits (ROW, curve and station), traffic signals and grades. It stops at every platform, works the doors with the hold brake, and handles wheelslip with sanding. Results are in [`docs/DRIVE-SIM-RESULTS.md`](docs/DRIVE-SIM-RESULTS.md) (`node scripts/drive-sim.mjs --write`). The runs exposed these bugs, now fixed:
 
@@ -89,6 +102,10 @@ These work with `npm run dev`, e.g. `http://localhost:5173/?route=ion_northbound
 | `weather` | `dry` · `rain` · `snow` | Weather |
 | `tod` | `day` · `dusk` · `night` | Time of day |
 | `tutorial` | `0` · `1` | Show the controls tutorial |
+| `side` | `auto` · `left` · `right` | Side-camera side (with `cam=side`) |
+| `lights` | `auto` · `on` · `off` | Train lights |
+| `autosand` | `0` · `1` | Automatic sanding (default 1) |
+| `slipctl` | `0` · `1` | Wheel-slip control (default 1; 0 = v1.4.2 behaviour) |
 
 ## Controls
 
@@ -99,7 +116,9 @@ These work with `npm run dev`, e.g. `http://localhost:5173/?route=ion_northbound
 | S / ↓ | Brake notch up |
 | T | Doors (only when stopped; open on the platform side; hold brake applied while open) |
 | Space | Horn |
-| Shift | Sand (raises adhesion) |
+| Shift | Sand by hand (automatic sanding also runs on wheelslip) |
+| H | Headlights / train lights on or off (automatically on at dusk and night) |
+| V | Side camera: auto (platform side) / left / right |
 | P | Pantograph (ION only) |
 | C | Camera: cab / chase / trackside |
 | Esc | Release mouse, then menu |
@@ -147,7 +166,7 @@ ION: articulated 5-module Flexity Freedom (30.8 m × 2.65 m × 3.6 m, Bo′2Bo�
 ## Tests & build
 
 ```bash
-npm test     # 183 headless checks incl. 24 end-to-end drive simulations (4 routes × 2 directions × dry/rain/snow)
+npm test     # 214 headless checks incl. 24 end-to-end drive simulations (4 routes × 2 directions × dry/rain/snow) and the v1.4.3 checks (scripts/stress-v143.mjs)
 node scripts/drive-sim.mjs --write   # drive sims only; writes docs/DRIVE-SIM-RESULTS.md
 npm run build
 node scripts/bake-ion-tracks.mjs   # re-bake ION SB/NB lines + OSM platforms (Overpass; raw response cached in scripts/raw/)

@@ -165,3 +165,40 @@ export function layoutPlatform(
     source: m ? 'osm' : 'default', osm: m?.pl.osm, edge, back,
   };
 }
+
+/**
+ * Station name sign yaws (three.js rotation.y; a plane's readable face is local +z).
+ * `(ox, oz)` = unit vector from the platform edge toward the platform back. v1.4.2 used one
+ * DoubleSide plane facing the track, so from the platform its text read mirrored. Now two
+ * single-sided faces: one reads from the track (train), one from the platform.
+ */
+export function nameSignYaws(ox: number, oz: number) {
+  return { trackFace: Math.atan2(-ox, -oz), platformFace: Math.atan2(ox, oz) };
+}
+
+/** Readable-face normal of a plane with rotation.y = yaw (x, z). */
+export function faceNormal(yaw: number) {
+  return { x: Math.sin(yaw), z: Math.cos(yaw) };
+}
+
+/**
+ * Unit lateral vector from the train toward `side` (+1 right of travel, −1 left) for a
+ * forward direction (fx, fz) in the x-east / z-south frame (left = leftOf(heading)).
+ */
+export function sideUnit(fx: number, fz: number, side: 1 | -1) {
+  return side > 0 ? { x: -fz, z: fx } : { x: fz, z: -fx };
+}
+
+export type SideCamMode = 'auto' | 'left' | 'right';
+
+/** Side camera: auto follows the platform side of a station within reach, else right. */
+export function sideCamSide(mode: SideCamMode, platformSide: 1 | -1 | null): 1 | -1 {
+  if (mode === 'left') return -1;
+  if (mode === 'right') return 1;
+  return platformSide ?? 1;
+}
+
+/** V key: auto → left → right → auto. */
+export function nextSideCamMode(mode: SideCamMode): SideCamMode {
+  return mode === 'auto' ? 'left' : mode === 'left' ? 'right' : 'auto';
+}

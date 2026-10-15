@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { lonLatToLocal } from './coords';
+import { lonLatToLocal, localToLonLat } from './coords';
 import type { Elevation } from './elevation';
 import { SPEED_LIMITS_KMH, civilSpeedLimitKmh, curveSpeedLimitKmh, type RowClass } from './Physics';
 
@@ -41,6 +41,8 @@ export class Track {
     baseElev = 330,
     reverse = false,
     demAt?: (lon: number, lat: number) => number,
+    /** refit: ease sub-minimum curves to MIN_RADIUS_M (off for the ION reference chainage line). */
+    opts: { refit?: boolean } = {},
   ) {
     let ring = coords.slice();
     let prof = profile && profile.length === coords.length ? profile.slice() : null;
@@ -59,15 +61,16 @@ export class Track {
     }
     t.recomputeChainage();
     t.densify(5);
+    if (opts.refit !== false) t.enforceMinRadius();
     t.smoothVertical();
     t.recomputeDerivatives();
     return t;
   }
 
-  static async fromGeoJSON(url: string, elev: Elevation, profile: number[] | undefined, name: string, reverse = false) {
+  static async fromGeoJSON(url: string, elev: Elevation, profile: number[] | undefined, name: string, reverse = false, opts: { refit?: boolean } = {}) {
     const gj = await (await fetch(url)).json();
     const coords: [number, number][] = gj.features[0].geometry.coordinates;
-    return Track.fromLonLatProfile(coords, profile, name, elev.baseElev, reverse, (lon, lat) => elev.elevLonLat(lon, lat));
+    return Track.fromLonLatProfile(coords, profile, name, elev.baseElev, reverse, (lon, lat) => elev.elevLonLat(lon, lat), opts);
   }
 
   /** Track bed (rail base) sits this far above the DEM before cut/fill smoothing. */
@@ -216,6 +219,112 @@ export class Track {
       pts[i].y = a.y + dy;
     }
     this.recomputeChainage();
+  }
+
+  /** Half-chord (m) of the three-point radius used for the minimum-radius check / refit. */
+  static readonly RADIUS_CHECK_HALF_CHORD_M = 12;
+  /** Horizontal offset of the refitted line from the OSM line, last refit (m). */
+  refitMaxOffsetM = 0;
+
+  /** Three-point (circumscribed) radius through s−h, s, s+h in plan (m). */
+  radiusAt(s: number, h = Track.RADIUS_CHECK_HALF_CHORD_M): number {
+    const a = this.sampleRaw(Math.max(0, s - h)), b = this.sampleRaw(s), c = this.sampleRaw(Math.min(this.length, s + h));
+    const ab = Math.hypot(b.x - a.x, b.z - a.z), bc = Math.hypot(c.x - b.x, c.z - b.z), ca = Math.hypot(a.x - c.x, a.z - c.z);
+    const area2 = Math.abs((b.x - a.x) * (c.z - a.z) - (b.z - a.z) * (c.x - a.x));
+    return area2 > 1e-6 ? (ab * bc * ca) / (2 * area2) : Infinity;
+  }
+
+  /**
+   * Refit the plan geometry so no curve is tighter than `minR` (Flexity minimum 25 m).
+   * OSM ways are polylines: at a sharp vertex (e.g. SB s≈8790, King/Victoria) the ±12 m
+   * three-point radius was R≈19 m, so the articulated modules swung 1.84 m off the
+   * centreline. The refit works on the turn angle at each vertex: wherever a vertex turns
+   * more than minR·margin allows over its adjacent segments, the excess heading change is
+   * passed on half to each neighbour (total turn is conserved, so the line leaves the curve
+   * on the same OSM heading — like replacing the kink with a designed curve). Positions in
+   * the affected stretch are re-integrated and the small closure error is spread linearly,
+   * so the line rejoins the OSM line exactly. Straights and compliant curves are untouched.
+   * `refitMaxOffsetM` is the largest distance of the refitted line from the OSM line.
+   */
+  enforceMinRadius(minR = Track.MIN_RADIUS_M, margin = 1.15) {
+    const pts = this.points;
+    const n = pts.length;
+    this.refitMaxOffsetM = 0;
+    if (n < 5) return;
+    const kMax = 1 / (minR * margin);
+    const segLen = new Float64Array(n - 1);
+    const head = new Float64Array(n - 1);
+    for (let i = 0; i < n - 1; i++) {
+      const dx = pts[i + 1].x - pts[i].x, dz = pts[i + 1].z - pts[i].z;
+      segLen[i] = Math.hypot(dx, dz);
+      head[i] = Math.atan2(dx, dz);
+    }
+    const wrap = (a: number) => { while (a > Math.PI) a -= 2 * Math.PI; while (a < -Math.PI) a += 2 * Math.PI; return a; };
+    const tau = new Float64Array(n); // turn at vertex i (1..n−2)
+    for (let i = 1; i < n - 1; i++) tau[i] = wrap(head[i] - head[i - 1]);
+    const tauMax = (i: number) => kMax * (segLen[i - 1] + segLen[i]) / 2;
+    const orig = Float64Array.from(tau);
+    let guard = 0;
+    for (let changed = true; changed && guard < 200000;) {
+      changed = false;
+      for (let i = 1; i < n - 1; i++) {
+        const lim = tauMax(i);
+        const a = Math.abs(tau[i]);
+        if (a <= lim * (1 + 1e-9)) continue;
+        const e = Math.sign(tau[i]) * (a - lim);
+        tau[i] -= e;
+        const l = i - 1 >= 1, r = i + 1 <= n - 2;
+        if (l && r) { tau[i - 1] += e / 2; tau[i + 1] += e / 2; } else if (l) tau[i - 1] += e; else if (r) tau[i + 1] += e;
+        changed = true;
+        guard++;
+      }
+    }
+    // affected vertex runs → re-integrate positions with the new headings, close the gap
+    const ox = pts.map((p) => p.x), oz = pts.map((p) => p.z);
+    let i = 1;
+    while (i < n - 1) {
+      if (Math.abs(tau[i] - orig[i]) < 1e-9) { i++; continue; }
+      let j = i;
+      while (j + 1 < n - 1 && Math.abs(tau[j + 1] - orig[j + 1]) >= 1e-9) j++;
+      // vertices i..j changed; positions i+1..j are recomputed from vertex i (fixed),
+      // vertex j+1 must land back on its original place
+      let hh = head[i - 1];
+      const nx: number[] = [], nz: number[] = [];
+      let x = pts[i].x, z = pts[i].z;
+      for (let k = i; k <= j; k++) {
+        hh += tau[k];
+        x += Math.sin(hh) * segLen[k];
+        z += Math.cos(hh) * segLen[k];
+        nx.push(x); nz.push(z); // position of vertex k+1
+      }
+      const ex = pts[j + 1].x - x, ez = pts[j + 1].z - z;
+      let tot = 0;
+      for (let k = i; k <= j; k++) tot += segLen[k];
+      let acc = 0;
+      for (let k = i; k < j; k++) { // vertices k+1 (i+1..j)
+        acc += segLen[k];
+        const f = acc / tot;
+        pts[k + 1].x = nx[k - i] + ex * f;
+        pts[k + 1].z = nz[k - i] + ez * f;
+      }
+      i = j + 1;
+    }
+    // offset of the refit from the OSM polyline
+    const ref = new Track('osm');
+    ref.points = pts.map((p, k) => ({ ...p, x: ox[k], z: oz[k] }));
+    ref.recomputeChainage();
+    let maxOff = 0;
+    for (let k = 0; k < n; k++) {
+      const p = pts[k];
+      if (Math.abs(p.x - ox[k]) + Math.abs(p.z - oz[k]) < 1e-9) continue;
+      [p.lon, p.lat] = localToLonLat(p.x, p.z);
+      const q = ref.sampleRaw(ref.nearestSLocal(p.x, p.z));
+      maxOff = Math.max(maxOff, Math.hypot(q.x - p.x, q.z - p.z));
+    }
+    this.refitMaxOffsetM = maxOff;
+    this.segHash = null;
+    this.recomputeChainage();
+    this.recomputeDerivatives();
   }
 
   /** Insert vertices so no segment exceeds maxStepM (smoother rails + physics). */

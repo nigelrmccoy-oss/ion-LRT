@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { Track } from './Track';
 import type { Elevation } from './elevation';
-import { layoutPlatform, type OsmPlatform, type PlatformLayout } from './PlatformLayout';
+import { layoutPlatform, nameSignYaws, type OsmPlatform, type PlatformLayout } from './PlatformLayout';
 import {
   PLATFORM_EDGE_OFFSET_M, PLATFORM_HEIGHT_ATR_M, PLATFORM_LENGTH_M, PLATFORM_WIDTH_M,
   RAIL_TOP_ABOVE_TRACK_Y_M, GO_PLATFORM_EDGE_OFFSET_M, GO_PLATFORM_HEIGHT_ATR_M,
@@ -143,15 +143,19 @@ export class StationSystem {
       ctx.font = 'bold 22px system-ui';
       ctx.fillText(st.name, 12, 40);
       const tex = new THREE.CanvasTexture(canvas);
-      const totem = new THREE.Mesh(
-        new THREE.PlaneGeometry(4, 1),
-        new THREE.MeshBasicMaterial({ map: tex, transparent: true, side: THREE.DoubleSide })
-      );
-      totem.position.set(cx - ox * 0.2, yTop + 2.45, cz - oz * 0.2);
-      // face the track: plane normal toward the edge
-      totem.rotation.y = Math.atan2(-ox, -oz);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      // Two single-sided faces back to back (v1.4.2: one DoubleSide plane facing the track
+      // read mirrored from the platform). Each face's +z normal points at its reader.
+      const yaws = nameSignYaws(ox, oz);
+      const signMat = new THREE.MeshBasicMaterial({ map: tex, side: THREE.FrontSide });
+      for (const [yaw, off] of [[yaws.trackFace, -0.02], [yaws.platformFace, 0.02]] as const) {
+        const face = new THREE.Mesh(new THREE.PlaneGeometry(4, 1), signMat);
+        face.name = 'stationNameSign';
+        face.position.set(cx - ox * 0.2 + ox * off, yTop + 2.45, cz - oz * 0.2 + oz * off);
+        face.rotation.y = yaw;
+        g.add(face);
+      }
       void hx; void hz;
-      g.add(totem);
       this.group.add(g);
     });
     // keep chainage order after re-centring on the real platforms

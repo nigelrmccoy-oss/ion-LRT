@@ -98,9 +98,35 @@ function buildPath(dirTag, from, to) {
     }
   }
   if (!done.has(dst)) throw new Error(`no ${dirTag} path`);
-  const seq = [];
+  let seq = [];
   for (let u = dst; u !== undefined; u = prev.get(u)) seq.push(u);
   seq.reverse();
+  // Termini: the node nearest the station coordinate is mid-platform, but the running
+  // track continues to the stub end (Fairway NB: 50 m, so the NB platform hung off the
+  // line start and its stop mark was clamped 43 m away). Follow the same running line
+  // (same-direction / untagged ION, no crossovers, < 30° per vertex) to its dead end.
+  const extend = (chain) => {
+    const out = chain.slice();
+    for (let guard = 0; guard < 200; guard++) {
+      const a = pos.get(out[out.length - 2]), b = pos.get(out[out.length - 1]);
+      let next = null, bestTurn = (30 * Math.PI) / 180;
+      for (const [v, d] of adj.get(out[out.length - 1]) || []) {
+        if (out.includes(v)) continue;
+        const q = pos.get(v);
+        const len = Math.hypot(q[0] - b[0], q[1] - b[1]);
+        if (len < 1e-6 || d / len > 1.06) continue; // only same-direction / shared ION track
+        let t = Math.atan2(q[0] - b[0], q[1] - b[1]) - Math.atan2(b[0] - a[0], b[1] - a[1]);
+        while (t > Math.PI) t -= 2 * Math.PI;
+        while (t < -Math.PI) t += 2 * Math.PI;
+        if (Math.abs(t) < bestTurn) { bestTurn = Math.abs(t); next = v; }
+      }
+      if (!next) break;
+      out.push(next);
+    }
+    return out;
+  };
+  seq = extend(seq);
+  seq = extend(seq.slice().reverse()).reverse();
   let pts = seq.map((n) => pos.get(n));
   // Trim terminal hops onto the other track (the nearest node to a terminus may sit on
   // the parallel line): drop end vertices that turn by more than 60°.

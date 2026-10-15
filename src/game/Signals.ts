@@ -85,9 +85,36 @@ export function lrvAmberS(approachKmh: number, downGrade = 0, brake = LRV_AMBER_
   return Math.min(AMBER_MAX_S, Math.max(AMBER_S, AMBER_REACTION_S + v / (2 * b)));
 }
 
+/** Heads this close to the running line always belong to it (street running / crossing). */
+export const SIGNAL_NEAR_M = 12;
+/** Heads further than this from the running line are never associated with it (m). */
+export const SIGNAL_MAX_LATERAL_M = 30;
+/** A head more than this much nearer another ION line faces that line's street (m). */
+export const SIGNAL_OTHER_LINE_MARGIN_M = 3;
+/** Lines closer than this (m) share one corridor (double track): no other-line test. */
+export const SIGNAL_SHARED_CORRIDOR_M = 15;
+
 /**
- * Copies of the signal heads keyed by chainage on `line` (heads further than `maxLateralM`
- * from it are dropped). Signals are baked on the ION reference centreline; the SB/NB running
+ * Should a head at lateral distance `d` from this line be enforced on this line?
+ * `dOther` = its distance to the nearest other ION running line, `sep` = distance between
+ * the two lines abeam the head. Heads ≤ SIGNAL_NEAR_M away always count; beyond that only
+ * up to SIGNAL_MAX_LATERAL_M, and where the lines run on separate streets (couplet,
+ * sep > SIGNAL_SHARED_CORRIDOR_M) only if the head is not clearly nearer the other line.
+ * OSM signal nodes carry no usable facing tag in the bake, so facing is taken from
+ * geometry: on a couplet a head on the parallel street controls that street's approach,
+ * not this line (v1.4.2 picked up SB heads up to 39.6 m away on the NB street). On double
+ * track both lines cross the same intersection, so its far-corner heads are kept.
+ */
+export function signalAppliesToLine(d: number, dOther = Infinity, sep = Infinity): boolean {
+  if (d <= SIGNAL_NEAR_M) return true;
+  if (d > SIGNAL_MAX_LATERAL_M) return false;
+  if (sep <= SIGNAL_SHARED_CORRIDOR_M) return true;
+  return d <= dOther + SIGNAL_OTHER_LINE_MARGIN_M;
+}
+
+/**
+ * Copies of the signal heads keyed by chainage on `line` (heads that do not apply to it —
+ * see signalAppliesToLine — are dropped). Signals are baked on the ION reference centreline; the SB/NB running
  * lines leave it on couplets and curves, where the nearest-point reference chainage stalls
  * and then races (v1.4.1: a train 30 m from a stop line was shown 33 m away for 4 s, then
  * crossed it on red). Enforcement now measures along the line the train runs on.
@@ -95,14 +122,24 @@ export function lrvAmberS(approachKmh: number, downGrade = 0, brake = LRV_AMBER_
 export function signalsForLine(
   all: SignalDef[],
   line: SignalLine,
-  maxLateralM = 40,
+  maxLateralM = SIGNAL_MAX_LATERAL_M,
   approachKmh: (s: number) => number = () => 40,
+  otherLines: SignalLine[] = [],
 ): SignalDef[] {
   const out: SignalDef[] = [];
   for (const sig of all) {
     const s = line.nearestSLocal(sig.x, sig.z);
     const p = line.sampleRaw(s);
-    if (Math.hypot(p.x - sig.x, p.z - sig.z) > maxLateralM) continue;
+    const d = Math.hypot(p.x - sig.x, p.z - sig.z);
+    if (d > maxLateralM) continue;
+    let dOther = Infinity, sep = Infinity;
+    for (const o of otherLines) {
+      const q = o.sampleRaw(o.nearestSLocal(sig.x, sig.z));
+      dOther = Math.min(dOther, Math.hypot(q.x - sig.x, q.z - sig.z));
+      const r = o.sampleRaw(o.nearestSLocal(p.x, p.z));
+      sep = Math.min(sep, Math.hypot(r.x - p.x, r.z - p.z));
+    }
+    if (!signalAppliesToLine(d, dOther, sep)) continue;
     out.push({ ...sig, s_ion: s, group: undefined, group_s0: undefined, group_s1: undefined });
   }
   const grouped = groupSignals(out);
@@ -272,8 +309,8 @@ export class SignalSystem {
    * Enforce along `line` (the track the train runs on); null = reference chainage. Trains
    * on a line then use their own chainage and travel direction (reverser) for trainS.
    */
-  setLine(line: SignalLine | null, maxLateralM = 40, approachKmh?: (s: number) => number) {
-    this.lineSignals = line ? signalsForLine(this.signals, line, maxLateralM, approachKmh) : this.signals;
+  setLine(line: SignalLine | null, maxLateralM = SIGNAL_MAX_LATERAL_M, approachKmh?: (s: number) => number, otherLines: SignalLine[] = []) {
+    this.lineSignals = line ? signalsForLine(this.signals, line, maxLateralM, approachKmh, otherLines) : this.signals;
     this.approachTimers.clear();
     this.prevAlong.clear();
     this.tspLatch.clear();

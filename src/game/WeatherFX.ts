@@ -2,7 +2,22 @@ import * as THREE from 'three';
 import type { Weather } from './Physics';
 
 const RAIN_COUNT = 1400;
-const SNOW_COUNT = 900;
+/** v1.4.3: 900 → 700 flakes (snow was the only sub-60 fps case on the RX 580). */
+const SNOW_COUNT = 700;
+/**
+ * No flake within this horizontal radius of the camera (m). With size attenuation a flake
+ * 0.3 m from the eye is drawn as a screen-filling blended quad; a handful of those per frame
+ * was the snow overdraw cost (p99 50 ms). Flakes are re-spawned outside the radius.
+ */
+export const SNOW_CLEAR_RADIUS_M = 2.5;
+
+/** Push (x, z) out to at least `r` from the origin (keeps direction). */
+export function outsideRadius(x: number, z: number, r: number): [number, number] {
+  const d = Math.hypot(x, z);
+  if (d >= r) return [x, z];
+  if (d < 1e-6) return [r, 0];
+  return [(x / d) * r, (z / d) * r];
+}
 
 /** In-cab weather: particles follow camera + fog / windshield tint hooks. */
 export class WeatherFX {
@@ -70,9 +85,10 @@ export class WeatherFX {
     const positions = new Float32Array(SNOW_COUNT * 3);
     this.velocities = new Float32Array(SNOW_COUNT);
     for (let i = 0; i < SNOW_COUNT; i++) {
-      positions[i * 3] = (Math.random() - 0.5) * 50;
+      const [x, z] = outsideRadius((Math.random() - 0.5) * 50, (Math.random() - 0.5) * 50, SNOW_CLEAR_RADIUS_M);
+      positions[i * 3] = x;
       positions[i * 3 + 1] = Math.random() * 28;
-      positions[i * 3 + 2] = (Math.random() - 0.5) * 50;
+      positions[i * 3 + 2] = z;
       this.velocities[i] = 1.2 + Math.random() * 2.2;
     }
     const geo = new THREE.BufferGeometry();
@@ -135,6 +151,16 @@ export class WeatherFX {
         arr[i * 3 + 1] = yMax;
         arr[i * 3] = (Math.random() - 0.5) * span;
         arr[i * 3 + 2] = (Math.random() - 0.5) * span;
+        if (!isRain) {
+          const [x, z] = outsideRadius(arr[i * 3], arr[i * 3 + 2], SNOW_CLEAR_RADIUS_M);
+          arr[i * 3] = x;
+          arr[i * 3 + 2] = z;
+        }
+      } else if (!isRain && arr[i * 3 + 1] < 6 && Math.abs(arr[i * 3]) < SNOW_CLEAR_RADIUS_M && Math.abs(arr[i * 3 + 2]) < SNOW_CLEAR_RADIUS_M) {
+        // drifted into the clear zone near eye height (group follows the camera)
+        const [x, z] = outsideRadius(arr[i * 3], arr[i * 3 + 2], SNOW_CLEAR_RADIUS_M);
+        arr[i * 3] = x;
+        arr[i * 3 + 2] = z;
       }
     }
     pos.needsUpdate = true;

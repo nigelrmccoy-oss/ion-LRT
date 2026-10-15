@@ -35,7 +35,7 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
   {
     id: 'done',
     title: 'Ready to roll',
-    body: 'Pantograph stays up for ION (P toggles). Space = horn. C = camera. Use the minimap for next station / ETA.',
+    body: 'Pantograph stays up for ION (P toggles). Space = horn. C = camera (V = side camera auto / left / right). H = headlights on/off — they switch on automatically at dusk and night. Wheel-slip control and automatic sanding are on; Shift still sands by hand. Use the minimap for next station / ETA.',
   },
 ];
 

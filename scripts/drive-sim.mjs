@@ -39,7 +39,10 @@ export async function bundleGame() {
     `export * from ${src('Signals.ts')};`,
     `export * from ${src('PlatformLayout.ts')};`,
     `export * from ${src('Clearances.ts')};`,
-    `export { DIESEL_DIMS, DIESEL_CONSIST_FRONT_M, DIESEL_CONSIST_REAR_M } from ${src('Vehicles.ts')};`,
+    `export * from ${src('Vehicles.ts')};`,
+    `export * from ${src('Articulation.ts')};`,
+    `export * from ${src('TrainLights.ts')};`,
+    `export { outsideRadius, SNOW_CLEAR_RADIUS_M } from ${src('WeatherFX.ts')};`,
   ].join('\n'));
   const outfile = path.join(dir, 'game.mjs');
   await esbuild.build({ entryPoints: [entry], outfile, format: 'esm', platform: 'neutral', bundle: true, logLevel: 'silent',
@@ -61,7 +64,7 @@ export async function loadWorld(M) {
   dem.baseElev = spots.reduce((a, b) => a + b, 0) / Math.max(1, spots.length);
   const demAt = (lon, lat) => dem.elevLonLat(lon, lat);
   const coords = async (f) => (await readJson(f)).features[0].geometry.coordinates;
-  const mk = async (f, prof, name, rev) => M.Track.fromLonLatProfile(await coords(f), prof, name, dem.baseElev, rev, demAt);
+  const mk = async (f, prof, name, rev, opts) => M.Track.fromLonLatProfile(await coords(f), prof, name, dem.baseElev, rev, demAt, opts);
 
   const row = new M.RowClassifier();
   row.samples = ((await readJson('row-segments.json')).samples || []).slice().sort((a, b) => a.s - b.s);
@@ -70,7 +73,7 @@ export async function loadWorld(M) {
   const stations = await readJson('stations.json');
   const platforms = (await readJson('platforms.json')).platforms;
 
-  const ion = await mk('ion-track.geojson', meta.track_profiles.ion, 'ION reference', false);
+  const ion = await mk('ion-track.geojson', meta.track_profiles.ion, 'ION reference', false, { refit: false });
   const tracks = {};
   for (const rev of [false, true]) {
     const sb = await mk('ion-sb.geojson', undefined, 'ION LRT southbound', rev);
@@ -386,7 +389,7 @@ export async function runDriveSims({ weathers = ['dry', 'rain', 'snow'], log = (
           const stations = layoutStations(M, W, r.key, track, others);
           const signals = new M.SignalSystem();
           signals.setSignals((W.sigFile.signals || []).map((x) => ({ ...x })));
-          if (r.vehicle === 'flexity') signals.setLine(track, 40, (q) => track.speedLimitKmh(Math.max(0, Math.min(track.length, q)), false));
+          if (r.vehicle === 'flexity') signals.setLine(track, M.SIGNAL_MAX_LATERAL_M, (q) => track.speedLimitKmh(Math.max(0, Math.min(track.length, q)), false), others);
           signals.cycleS = W.sigFile.cycle_s ?? 30;
           const electric = r.vehicle === 'flexity';
           const res = driveRun(M, W, {

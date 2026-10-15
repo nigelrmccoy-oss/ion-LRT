@@ -14,11 +14,13 @@ import { PhotorealTiles } from './PhotorealTiles';
 import { TerrainSystem } from './Terrain';
 import { StationSystem, type StationDef } from './Stations';
 import { RowClassifier } from './Row';
-import { SignalSystem, type SignalAspect } from './Signals';
+import { SignalSystem, SIGNAL_MAX_LATERAL_M, type SignalAspect } from './Signals';
 import { nextReverser, reverserLabel } from './reverser';
 import { CesiumIonImagery } from './CesiumIon';
 import { TutorialController } from './Tutorial';
 import { Minimap, etaSeconds, formatEta } from './Minimap';
+import { TrainLights, lightsOn, toggleLightsMode, lightsLabel, type LightsMode } from './TrainLights';
+import { sideUnit, sideCamSide, nextSideCamMode, type SideCamMode } from './PlatformLayout';
 
 export type RouteKey = 'ion_southbound' | 'ion_northbound' | 'elmira' | 'guelph';
 
@@ -75,6 +77,12 @@ export class Game {
   private windshield: HTMLElement | null = null;
   private lastAspectById = new Map<number, SignalAspect>();
   private activeLineKey: 'ion' | 'spur' | 'guelph' = 'ion';
+  /** Train lights (one real-time spot + emissive lamps); mode toggled with H. */
+  lights: TrainLights | null = null;
+  lightsMode: LightsMode = 'auto';
+  /** Side camera: auto = platform side of the nearby station; V cycles auto/left/right. */
+  sideCamMode: SideCamMode = 'auto';
+  private lastHornT = -1e9;
 
   constructor(canvas: HTMLCanvasElement, hud: Record<string, HTMLElement>) {
     this.hud = hud;
@@ -84,6 +92,10 @@ export class Game {
     this.renderer.setSize(innerWidth, innerHeight);
     this.renderer.shadowMap.enabled = true;
     this.input = new Input(canvas);
+    // A lost GL context (driver reset / GPU contention) otherwise leaves every program
+    // invalid ("no valid shader program" spam); preventDefault lets the browser restore it.
+    canvas.addEventListener('webglcontextlost', (e) => { e.preventDefault(); console.warn('WebGL context lost — waiting for restore'); });
+    canvas.addEventListener('webglcontextrestored', () => console.warn('WebGL context restored'));
     window.addEventListener('resize', () => this.onResize());
     this.scene.background = new THREE.Color(0x87a7c9);
     this.scene.fog = new THREE.Fog(0x87a7c9, 400, 2200);
@@ -131,6 +143,13 @@ export class Game {
     cam?: 0 | 1 | 2;
     /** Debug: initial reverser (1 forward, −1 reverse). */
     dir?: 1 | -1;
+    /** Debug: side camera auto / left / right. */
+    side?: SideCamMode;
+    /** Debug: lights auto / on / off. */
+    lights?: LightsMode;
+    /** Debug: automatic sanding / wheel-slip control (default on, like the real cars). */
+    autoSand?: boolean;
+    slipControl?: boolean;
   }) {
     this.onEnd = opts.onEnd;
     this.routeKey = opts.route;
@@ -170,7 +189,8 @@ export class Game {
 
     // Reference ION centreline: ROW segments, signals and OCS data are keyed to its chainage.
     // Not rendered — trains run on the real direction-specific OSM lines below.
-    const ion = await Track.fromGeoJSON('./data/ion-track.geojson', this.elev, elevMeta.track_profiles.ion, 'ION reference', false);
+    // (no min-radius refit: ROW/signal/OCS chainages in the data files are keyed to it as baked)
+    const ion = await Track.fromGeoJSON('./data/ion-track.geojson', this.elev, elevMeta.track_profiles.ion, 'ION reference', false, { refit: false });
     const ionSb = await Track.fromGeoJSON('./data/ion-sb.geojson', this.elev, undefined, 'ION LRT southbound', false);
     const ionNb = await Track.fromGeoJSON('./data/ion-nb.geojson', this.elev, undefined, 'ION LRT northbound', false);
     ionNb.blendHeightsToward(ionSb); // shared formation on double track
@@ -238,6 +258,8 @@ export class Game {
     this.physics.pantographUp = electric;
     this.physics.lineVoltage = 750;
     this.physics.resetVigilance();
+    this.physics.autoSand = opts.autoSand ?? true;
+    this.physics.slipControl = opts.slipControl ?? true;
 
     if (this.train) this.scene.remove(this.train);
     if (electric) {
@@ -248,11 +270,21 @@ export class Game {
       this.train = createDieselConsist(opts.route === 'elmira' ? 'wcr' : 'cn');
     }
     this.scene.add(this.train);
+    const stopsList = route.stations;
+    const dest = stopsList.length ? stopsList[stopsList.length - 1].name : '';
+    this.lights = this.lrv
+      ? TrainLights.forFlexity(this.lrv, `301 ${dest}`.toUpperCase())
+      : TrainLights.forDiesel(this.train);
+    this.lightsMode = opts.lights ?? 'auto';
+    this.sideCamMode = opts.side ?? 'auto';
+    this.lights.update(lightsOn(this.lightsMode, this.tod), this.simClock);
 
     this.terrain.buildTrafficSignals([ionSb, ionNb]);
     // enforce traffic signals along the line actually driven (not the reference chainage)
-    this.signals.setLine(this.activeLineKey === 'ion' ? this.track : null, 40,
-      (s) => this.track.speedLimitKmh(Math.max(0, Math.min(this.track.length, s)), false));
+    // (heads nearer the other ION line belong to its street — see signalAppliesToLine)
+    this.signals.setLine(this.activeLineKey === 'ion' ? this.track : null, SIGNAL_MAX_LATERAL_M,
+      (s) => this.track.speedLimitKmh(Math.max(0, Math.min(this.track.length, s)), false),
+      this.ionLines.filter((t) => t !== this.track));
     this.terrain.buildCrossings({ ion, spur, guelph });
 
     // Photoreal scenery (optional): Google Photorealistic 3D Tiles through Cesium ion
@@ -287,6 +319,19 @@ export class Game {
     } else {
       this.tutorial.skip();
     }
+
+    // Compile every shader program before the first frame (lights included): no compile
+    // stalls mid-drive and no draw with a half-linked program (see README v1.4.3 note on
+    // the one-off VALIDATE_STATUS burst at Frederick).
+    try {
+      this.lights?.update(true, this.simClock); // lit lamps / glow / pool compiled too
+      this.placeConsist();
+      this.updateCamera(this.track.sample(this.s));
+      await this.renderer.compileAsync(this.scene, this.camera);
+    } catch (err) {
+      console.warn('shader pre-compile skipped', err);
+    }
+    this.lights?.update(lightsOn(this.lightsMode, this.tod), this.simClock);
 
     this.clock.start();
     this.loop();
@@ -329,7 +374,7 @@ export class Game {
   }
 
   private handleInput(_dt: number) {
-    const edgeKeys = new Set(['KeyR', 'KeyT', 'KeyW', 'KeyS', 'ArrowUp', 'ArrowDown', 'Enter', 'Space', 'KeyP', 'KeyC']);
+    const edgeKeys = new Set(['KeyR', 'KeyT', 'KeyW', 'KeyS', 'ArrowUp', 'ArrowDown', 'Enter', 'Space', 'KeyP', 'KeyC', 'KeyH', 'KeyV']);
     // every press in arrival order (queue) — none lost at low frame rates
     for (const code of this.input.drainEdges()) {
       if (!edgeKeys.has(code)) continue;
@@ -386,8 +431,13 @@ export class Game {
       if (pan) pan.visible = this.physics.pantographUp;
       this.physics.resetVigilance();
     }
-    if (code === 'Space') this.audio.horn();
+    if (code === 'Space') {
+      this.audio.horn();
+      this.lastHornT = this.simClock;
+    }
     if (code === 'KeyC') this.camMode = ((this.camMode + 1) % 3) as 0 | 1 | 2;
+    if (code === 'KeyH') this.lightsMode = toggleLightsMode(this.lightsMode, this.tod);
+    if (code === 'KeyV') this.sideCamMode = nextSideCamMode(this.sideCamMode);
   }
 
   /** Chainage limits so the whole consist stays between the bumpers. */
@@ -572,6 +622,9 @@ export class Game {
       }
     }
     this.terrain.updateCrossingGates(activeX, this.simClock);
+    // ditch lights flash for 15 s after the horn or while a grade crossing ahead is active
+    this.lights?.update(lightsOn(this.lightsMode, this.tod), this.simClock,
+      !this.lrv && (this.simClock - this.lastHornT < 15 || activeX.size > 0));
 
     this.weatherFx?.update(dt, this.camera);
     this.updateHud(limit, rowInfo, enf.aspect, p.heading);
@@ -603,9 +656,7 @@ export class Game {
         this.camera.lookAt(lead.pos.x + fx * 6, lead.pos.y + 2, lead.pos.z + fz * 6);
       } else {
         const mid = this.pose.modules[2];
-        const fx = mid.fwd.x, fz = mid.fwd.z;
-        this.camera.position.set(mid.pos.x - fz * 18, mid.pos.y + 4, mid.pos.z + fx * 18);
-        this.camera.lookAt(mid.pos.x, mid.pos.y + 2, mid.pos.z);
+        this.placeSideCam(mid.pos, mid.fwd.x, mid.fwd.z);
       }
       return;
     }
@@ -624,9 +675,32 @@ export class Game {
       this.camera.lookAt(p.x, p.y + 2, p.z);
     } else {
       const hx = Math.sin(p.heading), hz = Math.cos(p.heading);
-      this.camera.position.set(p.x - hz * 18, p.y + 4, p.z + hx * 18);
-      this.camera.lookAt(p.x, p.y + 2, p.z);
+      // centre of the consist (the reference point is near the loco front)
+      const c = this.track.sample(Math.max(0, this.s - 9));
+      this.placeSideCam({ x: c.x, y: c.y, z: c.z }, hx, hz);
     }
+  }
+
+  /** Platform side of a station within 150 m (null if none). */
+  private nearbyPlatformSide(): 1 | -1 | null {
+    const st = this.stations.nearStation(this.s, 150);
+    return st?.platformSide ?? null;
+  }
+
+  /**
+   * Trackside camera on the left or right of travel. In auto mode it follows the platform
+   * side of a nearby station and drops to platform eye level, so the opening doors and the
+   * platform are visible at left-side (island / Public Square / Willis) stops too (v1.4.2
+   * was fixed on the right). V cycles auto / left / right.
+   */
+  private placeSideCam(c: { x: number; y: number; z: number }, fx: number, fz: number) {
+    const plat = this.nearbyPlatformSide();
+    const side = sideCamSide(this.sideCamMode, plat);
+    const u = sideUnit(fx, fz, side);
+    const onPlatform = plat !== null && side === plat;
+    const lat = onPlatform ? 7 : 18, up = onPlatform ? 2.2 : 4;
+    this.camera.position.set(c.x + u.x * lat, c.y + up, c.z + u.z * lat);
+    this.camera.lookAt(c.x, c.y + 1.8, c.z);
   }
 
   private updateHud(limit: number, row: string, aspect: SignalAspect | null, heading: number) {
@@ -656,6 +730,10 @@ export class Game {
     this.hud.reverser.textContent = reverserLabel(this.physics.reverser);
     this.hud.voltage.textContent = this.physics.electric ? `${this.physics.lineVoltage} V` : '—';
     this.hud.slip.className = 'lamp ' + (this.physics.wheelslip ? 'on' : 'off');
+    if (this.hud.sand) this.hud.sand.className = 'lamp ' + (this.physics.sandActive() ? 'on' : 'off');
+    if (this.hud.lights) this.hud.lights.textContent = lightsLabel(this.lightsMode, this.tod);
+    if (this.hud.sideCam && this.camMode === 2) this.hud.sideCam.textContent = `Side cam ${this.sideCamMode}`;
+    else if (this.hud.sideCam) this.hud.sideCam.textContent = '';
     if (this.hud.blockVal) {
       const reason = this.physics.powerBlockedReason();
       this.hud.blockVal.textContent = reason || '';

@@ -46,6 +46,22 @@ export const MIN_CURVE_RADIUS_M = 25;
 /** Vigilance (deadman) timer only runs above this speed (m/s ≈ 1.8 km/h) — ESTIMATE. */
 export const VIGILANCE_MIN_SPEED_MS = 0.5;
 
+/**
+ * Wheel-slip control (traction) — ESTIMATES. The Flexity's traction control is creep-
+ * controlled: on slip the inverter cuts tractive effort back to the adhesion limit and keeps
+ * it there instead of collapsing it (v1.4.2 cut TE to 35 % on every slip, so a P7 start on
+ * the 4.9 % wet King St grade stalled with ~70 % slip). Fraction of the momentary adhesion
+ * limit that the controller holds while slipping: modern IGBT drive vs older diesel relays.
+ */
+export const SLIP_CONTROL_TE_FRAC_ELECTRIC = 0.95;
+export const SLIP_CONTROL_TE_FRAC_DIESEL = 0.85;
+/** Wheel-slide protection (brakes): fraction of the adhesion limit held while sliding. */
+export const SLIDE_CONTROL_BRAKE_FRAC = 0.9;
+/** Without slip control (slipControl = false): TE / brake force collapse to this fraction. */
+export const UNCONTROLLED_SLIP_FRAC = 0.35;
+/** Automatic sanding keeps sanding this long after the last detected slip/slide (s). */
+export const AUTO_SAND_HOLD_S = 3;
+
 export function adhesionMu(weather: Weather, sanding: boolean): number {
   let mu = weather === 'dry' ? 0.30 : weather === 'rain' ? 0.15 : 0.10;
   if (sanding) mu = Math.min(0.35, mu + 0.08);
@@ -119,6 +135,12 @@ export class TrainPhysics {
    * can never let the car roll away (v1.4.0 rolled back at −1.5 km/h with doors open).
    */
   holdBrake = false;
+  /** Creep-controlled traction + wheel-slide protection (real Flexity / modern locos). */
+  slipControl = true;
+  /** Automatic sanding on wheelslip / slide (driver Shift = manual sanding). */
+  autoSand = true;
+  /** Seconds of automatic sanding left (re-armed while slipping). */
+  autoSandTimer = 0;
 
   axleFrac: number;
 
@@ -135,8 +157,13 @@ export class TrainPhysics {
     return this.electric ? VMAX_ELECTRIC_MS : VMAX_DIESEL_MS;
   }
 
+  /** Sand reaching the rail: manual (Shift) or automatic after a slip. */
+  sandActive() {
+    return this.sanding || (this.autoSand && this.autoSandTimer > 0);
+  }
+
   baseMu() {
-    return adhesionMu(this.weather, this.sanding);
+    return adhesionMu(this.weather, this.sandActive());
   }
 
   /** Max traction effort N vs speed (simplified Flexity / diesel curve). */
@@ -215,11 +242,18 @@ export class TrainPhysics {
     const brakeSlip = this.brakeNotch > 0 && Math.abs(this.speed) > 0.05 && demandBrake > brakeAdhesion;
     this.wheelslip = teSlip || brakeSlip;
 
+    // Slip: with creep control TE is held just under the adhesion limit; without it the
+    // slipping axles lose most of their grip (old behaviour, slipControl = false)
+    const teFrac = this.electric ? SLIP_CONTROL_TE_FRAC_ELECTRIC : SLIP_CONTROL_TE_FRAC_DIESEL;
     let te = Math.min(demandTE, maxAdhesion);
-    if (teSlip) te *= 0.35; // reduced accel while slipping (no anti-slip recovery modelled)
+    if (teSlip) te = this.slipControl ? maxAdhesion * teFrac : te * UNCONTROLLED_SLIP_FRAC;
 
     let Fbrake = Math.min(demandBrake, brakeAdhesion);
-    if (brakeSlip) Fbrake *= 0.35; // reduced braking while sliding
+    if (brakeSlip) Fbrake = this.slipControl ? brakeAdhesion * SLIDE_CONTROL_BRAKE_FRAC : Fbrake * UNCONTROLLED_SLIP_FRAC;
+
+    // Automatic sanding: armed by any slip/slide, sands for AUTO_SAND_HOLD_S afterwards
+    if (this.autoSand && this.wheelslip) this.autoSandTimer = AUTO_SAND_HOLD_S;
+    else this.autoSandTimer = Math.max(0, this.autoSandTimer - dt);
 
     const resist = this.davisResistance(this.speed) + this.curveResistance(curvature);
     const Fgrade = this.gradeForce(grade);
