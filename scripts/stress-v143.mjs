@@ -135,9 +135,10 @@ export async function v143Tests(assert) {
 
     // ---- W. wheel-slip control + automatic sanding ----------------------------------------
     {
-      // the QA repro: SB s = 9535 (+4.9 %), rain, P7 from standstill
+      // the QA repro: SB s = 9535 (the 4.5 % design-grade climb; 4.9 % before v1.4.5), P7 from standstill.
+      // Slippery rail is SNOW here: v1.4.5 raised wet-rail μ to 0.22 (see RAIL_MU), so plain rain no longer stalls this start.
       const run = (cfg) => {
-        const p = new M.TrainPhysics({ massKg: M.MASS_FLEXITY_KG, weather: 'rain', electric: true, axleFrac: M.AXLE_FRAC_FLEXITY });
+        const p = new M.TrainPhysics({ massKg: M.MASS_FLEXITY_KG, weather: 'snow', electric: true, axleFrac: M.AXLE_FRAC_FLEXITY });
         p.reverser = 1; p.pantographUp = true; p.lineVoltage = 750; p.resetVigilance();
         p.slipControl = cfg.slipControl; p.autoSand = cfg.autoSand; p.sanding = !!cfg.manualSand;
         p.powerNotch = 7;
@@ -162,16 +163,17 @@ export async function v143Tests(assert) {
       const auto = run({ slipControl: true, autoSand: true });
       const manual = run({ slipControl: true, autoSand: false, manualSand: true });
       const fmt = (r) => `${r.dist.toFixed(0)} m, ${r.v12.toFixed(1)} km/h @12 s, slip ${r.slip.toFixed(1)} s`;
-      assert('W. repro: SB s=9535 is the ~4.9 % climb', g0 > 0.045, `grade ${(g0 * 100).toFixed(2)} %`);
+      assert('W. repro: SB s=9535 is the ~4.5 % climb (design-grade cap)', g0 > 0.044, `grade ${(g0 * 100).toFixed(2)} %`);
       assert('W. v1.4.2 behaviour (no slip control, no sand) still stalls there — the bug', legacy.v12 < 6, fmt(legacy));
-      assert('W. creep-controlled traction, no sand at all: rain P7 start succeeds (≥ 15 km/h in 12 s, no rollback)',
-        ctrl.v12 >= 15 && ctrl.minV > -0.01 && ctrl.dist > 150, fmt(ctrl));
+      // snow μ0 = 0.10 limits an unsanded climb of 4.5 % to a crawl (≈ 5 km/h); the point is that it moves, where v1.4.2 did not
+      assert('W. creep-controlled traction, no sand at all: snow P7 start climbs (≥ 4 km/h in 12 s, no rollback; v1.4.2 stalled at 0)',
+        ctrl.v12 >= 4 && ctrl.minV > -0.01 && ctrl.dist > 50, fmt(ctrl));
       assert('W. + automatic sanding: succeeds, sand applied on slip, at least as fast',
         auto.v12 >= 15 && auto.minV > -0.01 && auto.sandSeen && auto.dist >= ctrl.dist - 1, fmt(auto));
       assert('W. + manual sand (Shift): succeeds, less slip than without sand',
         manual.v12 >= 15 && manual.minV > -0.01 && manual.slip <= ctrl.slip, fmt(manual));
       // auto sand switches itself off AUTO_SAND_HOLD_S after the slip ends
-      const p = new M.TrainPhysics({ massKg: M.MASS_FLEXITY_KG, weather: 'rain', electric: true, axleFrac: M.AXLE_FRAC_FLEXITY });
+      const p = new M.TrainPhysics({ massKg: M.MASS_FLEXITY_KG, weather: 'snow', electric: true, axleFrac: M.AXLE_FRAC_FLEXITY });
       p.reverser = 1; p.powerNotch = 8; p.resetVigilance();
       for (let t = 0; t < 2; t += 0.05) p.step(0.05, 0.049, 0);
       const armed = p.sandActive();
@@ -180,13 +182,13 @@ export async function v143Tests(assert) {
       assert('W. automatic sanding arms on slip and stops AUTO_SAND_HOLD_S after it', armed && !p.sandActive());
       // wheel-slide protection: wet emergency-ish stop from 40 km/h on the 4.9 % fall
       const stop = (slipControl) => {
-        const q = new M.TrainPhysics({ massKg: M.MASS_FLEXITY_KG, weather: 'rain', electric: true, axleFrac: M.AXLE_FRAC_FLEXITY });
+        const q = new M.TrainPhysics({ massKg: M.MASS_FLEXITY_KG, weather: 'snow', electric: true, axleFrac: M.AXLE_FRAC_FLEXITY });
         q.reverser = 1; q.speed = 40 / 3.6; q.brakeNotch = 8; q.slipControl = slipControl; q.autoSand = slipControl; q.resetVigilance();
         let d = 0; for (let t = 0; t < 60 && q.speed > 0; t += 0.05) { q.step(0.05, -0.049, 0); d += q.speed * 0.05; }
         return d;
       };
       const dW = stop(true), dL = stop(false);
-      assert('W. wheel-slide protection: wet B8 stop on −4.9 % no longer than without it', dW <= dL + 0.5, `${dW.toFixed(1)} m vs ${dL.toFixed(1)} m`);
+      assert('W. wheel-slide protection: slippery-rail B8 stop on −4.5 % no longer than without it', dW <= dL + 0.5, `${dW.toFixed(1)} m vs ${dL.toFixed(1)} m`);
     }
 
     // ---- P. stop marks vs OSM platforms ----------------------------------------------------

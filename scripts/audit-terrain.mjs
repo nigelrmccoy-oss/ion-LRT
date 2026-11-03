@@ -33,7 +33,7 @@ export function auditTrack(M, W, tr) {
     const R = (ss[i + w] - ss[i - w]) / Math.abs(dg);
     if (dg > 0) { minSag = Math.min(minSag, R); if (R < 244) nSag++; } else { minCrest = Math.min(minCrest, R); if (R < 122) nCrest++; }
   }
-  const above = (lim) => absG.filter((g) => g > lim).length * step;
+  const above = (lim) => absG.filter((g) => g > lim + 1e-6).length * step; // 1e-6 = float tolerance (the cap is projected to 1e-9)
   return {
     length: L, maxGrade: Math.max(...absG), p99Grade: pct(absG, 0.99), above45m: above(0.045), above50m: above(0.0499),
     demMaxGrade: Math.max(...demG), demP99: pct(demG, 0.99), demAbove6: demG.filter((g) => g > 0.06).length * step,

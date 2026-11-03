@@ -52,6 +52,7 @@ async function main() {
     VMAX_ELECTRIC_MS,
     VMAX_DIESEL_MS,
     SPEED_LIMITS_KMH,
+    OVERSPEED_PENALTY_MARGIN_KMH,
     civilSpeedLimitKmh,
     isOverspeed,
     adhesionMu,
@@ -98,7 +99,8 @@ async function main() {
 
   // --- b. Rain notch 8 wheelslips; sanding reduces slip or raises accel ---
   {
-    const rain = electric('rain');
+    // snow: wet rail (μ 0.22 since v1.4.5) no longer slips a level P8 start
+    const rain = electric('snow');
     rain.reverser = 1;
     rain.powerNotch = 8;
     rain.sanding = false;
@@ -110,13 +112,13 @@ async function main() {
       if (rain.wheelslip) slipped = true;
       distNoSand += Math.abs(rain.speed) * dt;
     }
-    assert('b. rain notch8 wheelslips', slipped, `dist=${distNoSand.toFixed(1)}m`);
+    assert('b. snow notch8 wheelslips', slipped, `dist=${distNoSand.toFixed(1)}m`);
 
-    const r2 = electric('rain');
+    const r2 = electric('snow');
     r2.reverser = 1;
     r2.powerNotch = 8;
     r2.sanding = false;
-    const s2 = electric('rain');
+    const s2 = electric('snow');
     s2.reverser = 1;
     s2.powerNotch = 8;
     s2.sanding = true;
@@ -131,7 +133,7 @@ async function main() {
     const better =
       slipTimeSand < slipTimeNo - 0.05 || s2.speedKmh() > r2.speedKmh() + 0.5;
     assert(
-      'b. sanding helps vs unsanded rain',
+      'b. sanding helps vs unsanded snow',
       better,
       `slipNo=${slipTimeNo.toFixed(2)}s slipSand=${slipTimeSand.toFixed(2)}s ` +
         `vNo=${r2.speedKmh().toFixed(1)} vSand=${s2.speedKmh().toFixed(1)}`,
@@ -241,12 +243,12 @@ async function main() {
   // --- g. Station 25 / street 40 / reserved 70 + overspeed + rowClass ---
   {
     assert('g. station limit 25', SPEED_LIMITS_KMH.station === 25 && civilSpeedLimitKmh(true, 0) === 25);
-    assert('g. street limit 40', SPEED_LIMITS_KMH.street === 40 && civilSpeedLimitKmh(false, 0.005) === 40);
+    assert('g. street limit 50 (Wikipedia Ion: 50 km/h on city streets)', SPEED_LIMITS_KMH.street === 50 && civilSpeedLimitKmh(false, 0.005) === 50);
     assert('g. reserved limit 70', SPEED_LIMITS_KMH.reserved === 70 && civilSpeedLimitKmh(false, 0) === 70);
     assert(
       'g. rowClass overrides curvature',
       civilSpeedLimitKmh(false, 0.01, { rowClass: 'reserved' }) === 70 &&
-        civilSpeedLimitKmh(false, 0, { rowClass: 'street' }) === 40,
+        civilSpeedLimitKmh(false, 0, { rowClass: 'street' }) === 50,
     );
     assert('g. overspeed detection', isOverspeed(73, 70) === true && isOverspeed(72, 70) === false && isOverspeed(70, 70) === false);
   }
@@ -263,15 +265,16 @@ async function main() {
     di.reverser = 1;
     di.powerNotch = 8;
     di.speed = 90 / 3.6;
-    for (let i = 0; i < 300; i++) di.step(1 / 30, -0.01, 0);
+    let top = 0;
+    for (let i = 0; i < 300; i++) { di.enforceSpeedLimit(Infinity); di.step(1 / 30, -0.01, 0); top = Math.max(top, di.speedKmh()); }
     assert(
-      'h. diesel can exceed Flexity 80 but not its own vMax',
-      di.speedKmh() <= 95.1,
-      `v=${di.speedKmh().toFixed(1)}`,
+      'h. diesel can exceed Flexity 80, never its own vMax + the penalty margin, and is braked back to ≤ vMax',
+      top > 85 && top <= 95 + OVERSPEED_PENALTY_MARGIN_KMH + 1 && di.speedKmh() <= 95.1,
+      `top=${top.toFixed(1)} v=${di.speedKmh().toFixed(1)}`,
     );
   }
 
-  assert('helper adhesionMu dry/rain/snow', adhesionMu('dry', false) === 0.3 && adhesionMu('rain', false) === 0.15 && adhesionMu('snow', false) === 0.1);
+  assert('helper adhesionMu dry/rain/snow', adhesionMu('dry', false) === 0.3 && adhesionMu('rain', false) === 0.22 && adhesionMu('snow', false) === 0.1);
 
   // --- e2. powerBlockedReason ---
   {
@@ -312,7 +315,7 @@ async function main() {
       arterialName: 'King Street South',
       nearStation: false,
     });
-    assert('i. classify King → street 40', st.row === 'street' && st.limit_kmh === 40);
+    assert('i. classify King → street 50', st.row === 'street' && st.limit_kmh === 50);
     const res = classifyIonRowSample({
       s: 2000,
       arterialDistM: 5,
@@ -336,7 +339,7 @@ async function main() {
       const r2 = RowClassifier.classifyAt(samples, 7500, false, 0);
       const r3 = RowClassifier.classifyAt(samples, 0, true, 0);
       assert('i. baked reserved ~70', r1.row === 'reserved' && r1.limitKmh === 70, `${r1.row}/${r1.limitKmh}`);
-      assert('i. baked street ~40', r2.row === 'street' && r2.limitKmh === 40, `${r2.row}/${r2.limitKmh}`);
+      assert('i. baked street ~50', r2.row === 'street' && r2.limitKmh === 50, `${r2.row}/${r2.limitKmh}`);
       assert('i. baked station ~25', r3.row === 'station' && r3.limitKmh === 25, `${r3.row}/${r3.limitKmh}`);
     } catch (e) {
       fail('i. baked row-segments.json', String(e));
@@ -486,11 +489,11 @@ async function main() {
         prev = p.speed;
         if (Math.abs(t - 1) < dt / 2) v1 = p.speed;
       }
-      return { slip, a1: v1 / 1, kmh: p.speedKmh(), monotone };
+      return { slip, a1: v1 / 1, kmh: p.speedKmh(), monotone };  // v after 1 s; the TE ramps at 1.34 m/s³, so a(1 s) ≈ 0.7–0.8
     };
     const flat = run(0, 0);
     assert('l. dry P7 flat: no SLIP flag', !flat.slip);
-    assert('l. dry P7 flat: accel 0.7–1.2 m/s² (Flexity ~1.0–1.1)', flat.a1 > 0.7 && flat.a1 < 1.2, `a=${flat.a1.toFixed(2)} m/s²`);
+    assert('l. dry P7 flat: mean accel over the first second 0.4–1.2 m/s² (Flexity ~1.0–1.1 peak; jerk-limited ramp at 1.34 m/s³)', flat.a1 > 0.4 && flat.a1 < 1.2, `a=${flat.a1.toFixed(2)} m/s²`);
     assert('l. dry P7 flat: >25 km/h after 10 s (no ~1 km/h creep)', flat.kmh > 25, `${flat.kmh.toFixed(1)} km/h`);
     // The Northfield / Block Line failure: tight-ish curve (R≈60–100 m) + grade
     for (const [g, R] of [[0, 100], [0.02, 60], [0.04, 25]]) {
@@ -506,9 +509,9 @@ async function main() {
     for (let t = 0; t < 5; t += dt) q.step(dt, 0, 0.02);
     assert('l. standstill P0 on curve: no creep', q.speed === 0, `v=${q.speed}`);
     // Rain P8 must still slip (adhesion model still active)
-    const rr = electric('rain'); rr.reverser = 1; rr.powerNotch = 8;
+    const rr = electric('snow'); rr.reverser = 1; rr.powerNotch = 8;
     let rs = false; for (let t = 0; t < 3; t += dt) { rr.step(dt, 0, 0); if (rr.wheelslip) rs = true; }
-    assert('l. rain P8 still flags SLIP', rs);
+    assert('l. snow P8 still flags SLIP', rs);
   }
 
   // --- m. Articulation: 5 modules through an S-curve at the 25 m minimum radius ---
@@ -945,6 +948,8 @@ async function main() {
     await v143Tests(assert);
     const { v144Tests } = await import('./stress-v144.mjs');
     await v144Tests(assert);
+    const { v145Tests } = await import('./stress-v145.mjs');
+    await v145Tests(assert);
   }
 
   const failed = results.filter((r) => !r.ok);

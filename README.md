@@ -1,8 +1,22 @@
-# ION LRT Simulator **v1.4.4**
+# ION LRT Simulator **v1.4.5**
 
 Playable browser / Electron cab simulator of the Waterloo Region **ION LRT** (GrandLinq / Keolis / GRT tribute), plus the **CN Waterloo Spur / WCR to Elmira** and **Kitchener–Guelph** heavy-rail routes.
 
 Built with **Vite + TypeScript + Three.js**. No Blender/Unity. No backend.
+
+## What’s new in v1.4.5 (Code Critic fixes on v1.4.4)
+
+Sources and the list of estimates are in [`docs/PHYSICS.md`](docs/PHYSICS.md); each changed constant has a source comment in `src/game/Physics.ts`.
+
+- **Jerk limits.** Traction ramps at 1.34 m/s³ (DART 3.0 mphpsps), the service brake at 1.2 m/s³ (Yarra Trams §4.2.2.2), the emergency brake at 5 m/s³ (ESTIMATE; EN 13452-1 gives only a build-up time). Traction is cut at once on an emergency or interlock. A stop follows v′ = −√(2·J·v), so it comes to rest without the old snap at about 7.8 m/s². Stops from 70 km/h are longer: dry service 154.0 m (was 144.6), dry emergency 73.0 m (was 68.1).
+- **Traction power 400 kW** (4 × 100 kW, Bombardier FLEXITY Outlook data sheet; was 320 kW), tractive effort 62 kN up to 23 km/h. 0–70 km/h takes 35.7 s (was 44.0 s).
+- **NaN guard.** A non-finite or non-positive dt is a skipped frame, and bad inputs and corrupted state are repaired, so one bad frame can no longer leave μ NaN for good.
+- **Labelling.** The creep curve is a simplified Polach-style shape and s_c is an estimate (comments and `docs/PHYSICS.md`).
+- **Wet rail μ 0.22** (was 0.15; about 0.14 at 70 km/h): field and design ranges in *Proc. IMechE F* 2023, FRA Table 1 and the classic adhesion literature. Rain sanded μ is 0.30.
+- **Leaf, snow and rain degrade the magnetic track brake** (× 0.6, × 0.6, × 0.8; ESTIMATE). Leaf emergency stop from 70 km/h: 120.8 m (was 86.8 m).
+- **Overspeed penalty brake** (ATP-style): above limit + 5 km/h (ESTIMATE) the train gets a penalty service brake and a traction cut-out until it is back at the limit. The street-running limit is **50 km/h** (Wikipedia, Ion rapid transit; was an unsourced 40).
+- **Grade.** `Track.grade` is now true rise/run (v1.4.4 stored sin θ and Physics converted it again), the 4.5 % cap is applied after the last smoothing so no stored grade exceeds it (v1.4.4: 300 m of SB up to 4.91 %), and brake adhesion has the same cos θ as traction.
+- 50 new checks in `scripts/stress-v145.mjs`; `scripts/measure-physics.mjs` prints the start, stop and hill-start benchmark.
 
 ## What’s new in v1.4.4 (wheel–rail physics and terrain audit)
 
@@ -151,7 +165,7 @@ Internal model is SI (kg, m, s, N). Inspired by classic MSTS / Open Rails `.eng`
 | OR / MSTS-style idea | This sim (SI) |
 |----------------------|---------------|
 | Mass (t) | `massKg` (Flexity tare 48200 + ~8000 pax) |
-| MaxPower / MaxForce | `maxTE()` — electric ~62 kN start, 320 kW @ 750 V; diesel ~178 kN / 1340 kW |
+| MaxPower / MaxForce | `maxTE()` — electric ~62 kN start, 400 kW @ 750 V (4 × 100 kW); diesel ~178 kN / 1340 kW |
 | NumWheels / adhesive weight | `axleFrac` (Flexity Bo′2Bo′ = 4/6) |
 | Friction (Davis A/B/C) | `davisResistance()` N — Davis 1926 eq. 15, `DAVIS_FLEXITY` / `DAVIS_DIESEL` |
 | MaxBrakeForce | brake notch × 1.26 m/s² × effective mass (service), emergency 2.73 m/s² incl. track brake; adhesion-capped with WSP |
@@ -162,7 +176,7 @@ Internal model is SI (kg, m, s, N). Inspired by classic MSTS / Open Rails `.eng`
 | Curve resistance | `curveResistance(curvature)` — 0.4 N/kN per degree of curve (AREMA-style), R ≥ 25 m |
 | Adhesion vs speed | `adhesionAt(v)` — Curtius–Kniffler shape × weather μ |
 
-Civil limits from ROW class: reserved ~70, street ~40, station ~25 km/h. Each limit is also capped by the curve limit (TCRP 155, 114 mm budget, 10 km/h minimum). A hold brake of 1.5 m/s² equivalent is applied at standstill (< 0.3 km/h with doors open).
+Civil limits from ROW class: reserved ~70, street ~50 (Wikipedia, Ion), station ~25 km/h. Each limit is also capped by the curve limit (TCRP 155, 114 mm budget, 10 km/h minimum). A hold brake of 1.5 m/s² equivalent is applied at standstill (< 0.3 km/h with doors open).
 
 ## Terrain & elevation
 
@@ -177,7 +191,7 @@ ION: articulated 5-module Flexity Freedom (30.8 m × 2.65 m × 3.6 m, Bo′2Bo�
 ## Tests & build
 
 ```bash
-npm test     # 303 headless checks incl. 24 end-to-end drive simulations (4 routes × 2 directions × dry/rain/snow), the v1.4.3 checks (scripts/stress-v143.mjs) and the v1.4.4 physics/terrain checks (scripts/stress-v144.mjs)
+npm test     # 353 headless checks incl. 24 end-to-end drive simulations (4 routes × 2 directions × dry/rain/snow), the v1.4.3 checks (scripts/stress-v143.mjs) the v1.4.4 physics/terrain checks (scripts/stress-v144.mjs) and the v1.4.5 checks (scripts/stress-v145.mjs)
 node scripts/audit-terrain.mjs   # grade / vertical-curve / DEM audit table
 node scripts/drive-sim.mjs --write   # drive sims only; writes docs/DRIVE-SIM-RESULTS.md
 npm run build

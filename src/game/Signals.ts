@@ -3,6 +3,8 @@
  * ION street sections use traffic-signal TSP, not railroad searchlights.
  */
 
+import { SPEED_LIMITS_KMH } from './Physics';
+
 export type SignalAspect = 'red' | 'amber' | 'green';
 
 export type SignalDef = {
@@ -123,7 +125,8 @@ export function signalsForLine(
   all: SignalDef[],
   line: SignalLine,
   maxLateralM = SIGNAL_MAX_LATERAL_M,
-  approachKmh: (s: number) => number = () => 40,
+  // amber is sized for the posted street-running speed (50 km/h since v1.4.5; was a hard-coded 40)
+  approachKmh: (s: number) => number = () => SPEED_LIMITS_KMH.street,
   otherLines: SignalLine[] = [],
 ): SignalDef[] {
   const out: SignalDef[] = [];

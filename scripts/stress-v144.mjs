@@ -28,18 +28,18 @@ export async function v144Tests(assert) {
     // ---- A. adhesion --------------------------------------------------------------------------
     {
       const mu0 = conds.map((c) => M.adhesionMu(c, false));
-      assert('A. μ(0): dry 0.30 > rain 0.15 > snow 0.10 > wet leaves 0.05', mu0[0] === 0.30 && mu0[1] === 0.15 && mu0[2] === 0.10 && mu0[3] === 0.05, mu0.join(' '));
+      assert('A. μ(0): dry 0.30 > rain 0.22 > snow 0.10 > wet leaves 0.05', mu0[0] === 0.30 && mu0[1] === 0.22 && mu0[2] === 0.10 && mu0[3] === 0.05, mu0.join(' '));
       let mono = true;
       for (const c of conds) for (let v = 1; v <= 100; v++) if (M.curtiusKnifflerFactor(v, c) >= M.curtiusKnifflerFactor(v - 1, c)) mono = false;
       assert('A. Curtius–Kniffler factor falls monotonically with speed (all conditions), 1 at standstill', mono && M.curtiusKnifflerFactor(0, 'dry') === 1 && M.curtiusKnifflerFactor(0, 'rain') === 1);
       // C&K dry 7.5/(v+44)+0.161: 0.331 at 0, 0.2275 at 70 km/h, 0.2147 at 80 km/h (hand-computed)
-      const ckDry70 = 0.30 * M.curtiusKnifflerFactor(70, 'dry'), ckWet80 = 0.15 * M.curtiusKnifflerFactor(80, 'rain');
-      assert('A. dry μ at 70 km/h = 0.206 and wet μ at 80 km/h = 0.098 (≥ GB braking design minimum 0.09)',
-        near(ckDry70, 0.30 * (7.5 / 114 + 0.161) / (7.5 / 44 + 0.161), 1e-9) && near(ckDry70, 0.206, 0.003) && ckWet80 >= 0.09 && near(ckWet80, 0.098, 0.004), `${ckDry70.toFixed(3)} / ${ckWet80.toFixed(3)}`);
+      const ckDry70 = 0.30 * M.curtiusKnifflerFactor(70, 'dry'), ckWet80 = M.RAIL_MU.rain * M.curtiusKnifflerFactor(80, 'rain');
+      assert('A. dry μ at 70 km/h = 0.206 and wet μ at 80 km/h ≈ 0.14 (≥ GB braking design minimum 0.09)',
+        near(ckDry70, 0.30 * (7.5 / 114 + 0.161) / (7.5 / 44 + 0.161), 1e-9) && near(ckDry70, 0.206, 0.003) && ckWet80 >= 0.09 && near(ckWet80, 0.22 * (7.5 / 124 + 0.130) / (7.5 / 44 + 0.130), 1e-9), `${ckDry70.toFixed(3)} / ${ckWet80.toFixed(3)}`);
       assert('A. sanding raises μ in every condition and stays inside the sanded laboratory ranges (wet ≤ 0.4, leaf ≤ 0.2, dry ≤ 0.5)',
         conds.every((c) => M.adhesionMu(c, true) > M.adhesionMu(c, false)) && M.adhesionMu('rain', true) <= 0.4 && M.adhesionMu('leaf', true) <= 0.2 && M.adhesionMu('dry', true) <= 0.5,
         conds.map((c) => `${c} ${M.adhesionMu(c, false)}→${M.adhesionMu(c, true)}`).join(', '));
-      assert('A. partial sand cover interpolates (cover 0.5 = midpoint)', near(M.adhesionMu('rain', 0.5), (0.15 + M.SANDED_MU.rain) / 2, 1e-9));
+      assert('A. partial sand cover interpolates (cover 0.5 = midpoint)', near(M.adhesionMu('rain', 0.5), (M.RAIL_MU.rain + M.SANDED_MU.rain) / 2, 1e-9));
       const p = mk('rain'); p.sanding = true; let t = 0;
       while (p.sandCover < 1 && t < 10) { p.step(0.05, 0, 0); t += 0.05; }
       const tUp = t; p.sanding = false; p.autoSand = false; t = 0;
@@ -67,9 +67,9 @@ export async function v144Tests(assert) {
       assert('B. dry flat start P8 with slip control: no slip, creep below the adhesion peak', !slip && maxX < 1, `max x=${maxX.toFixed(2)}, creep ${(d.creepTraction() * 100).toFixed(2)} %`);
       // wet hill: demand exceeds the peak; slip control holds x ≤ 1 (≈ 0.72 s_c at 95 % of peak)
       const tr = W.tracks['ion-sb.geojson|false'], gUp = tr.sample(9535).grade;
-      const w = mk('rain'); w.powerNotch = 8; w.autoSand = false; maxX = 0; slip = false;
+      const w = mk('snow'); w.powerNotch = 8; w.autoSand = false; maxX = 0; slip = false;
       for (let i = 0; i < 200; i++) { w.step(0.05, gUp, 0); maxX = Math.max(maxX, w.creepXTraction); slip ||= w.wheelslip; }
-      assert('B. wet 4.9 % start P8 with slip control: slip flagged, creep held at the 95 % point, never past the peak',
+      assert('B. snow 4.5 % start P8 with slip control: slip flagged, creep held at the 95 % point, never past the peak',
         slip && maxX <= 1 && near(maxX, M.creepFromForceFraction(M.SLIP_CONTROL_TE_FRAC_ELECTRIC), 0.05), `max x=${maxX.toFixed(3)} (${(w.creepTraction() * 100).toFixed(2)} % creep)`);
     }
 
@@ -77,14 +77,14 @@ export async function v144Tests(assert) {
     {
       const tr = W.tracks['ion-sb.geojson|false'], gUp = tr.sample(9535).grade;
       // with slip control: start, sand arms on its own, reaches 15 km/h without rolling back
-      const p = mk('rain'); p.powerNotch = 7; p.holdBrake = true; let minV = 0, slipT = 0, tReach = null;
+      const p = mk('snow'); p.powerNotch = 7; p.holdBrake = true; let minV = 0, slipT = 0, tReach = null;
       for (let i = 0; i < 1200; i++) {
         p.step(0.05, gUp, 0); minV = Math.min(minV, p.speed); if (p.wheelslip) slipT += 0.05;
         if (tReach === null && p.speedKmh() >= 15) tReach = i * 0.05;
       }
-      assert('C. wet 4.9 % hill start with slip control + auto sand: reaches 15 km/h, no roll-back', tReach !== null && tReach < 30 && minV > -0.01, `15 km/h at ${tReach?.toFixed(1)} s, slip ${slipT.toFixed(1)} s, min v ${minV.toFixed(3)}`);
+      assert('C. snow 4.5 % hill start with slip control + auto sand: reaches 15 km/h, no roll-back', tReach !== null && tReach < 30 && minV > -0.01, `15 km/h at ${tReach?.toFixed(1)} s, slip ${slipT.toFixed(1)} s, min v ${minV.toFixed(3)}`);
       // without slip control: the wheels run away onto the falling branch (x > 1) and the train does not climb
-      const q = mk('rain'); q.slipControl = false; q.autoSand = false; q.powerNotch = 8; q.holdBrake = true; let xMax = 0, vTop = 0;
+      const q = mk('snow'); q.slipControl = false; q.autoSand = false; q.powerNotch = 8; q.holdBrake = true; let xMax = 0, vTop = 0;
       for (let i = 0; i < 240; i++) { q.step(0.05, gUp, 0); xMax = Math.max(xMax, q.creepXTraction); vTop = Math.max(vTop, q.speedKmh()); }
       assert('C. without slip control the creep runs away past the peak (x > 3) and the start fails', xMax > 3 && vTop < 15, `max x=${xMax.toFixed(1)}, top ${vTop.toFixed(1)} km/h in 12 s`);
       // recovery: cut power, sand → creep returns to the rising branch
@@ -119,16 +119,16 @@ export async function v144Tests(assert) {
         M.SERVICE_BRAKE_DECEL === 1.26 && M.EMERGENCY_BRAKE_DECEL === 2.73 && near(M.TRACK_BRAKE_DECEL, 1.47, 1e-9));
       const svDry = stop('dry'), emDry = stop('dry', { emergency: true });
       const vv = (70 / 3.6) ** 2;
-      assert('D. dry B8 stop from 70 km/h on the flat: 125–150 m (v²/2a = 150 m minus running resistance)', svDry.s > 125 && svDry.s < 150, `${svDry.s.toFixed(1)} m in ${svDry.t.toFixed(1)} s`);
-      assert('D. dry emergency stop from 70 km/h: 58–72 m (v²/2a = 69 m)', emDry.s > 58 && emDry.s < 72, `${emDry.s.toFixed(1)} m`);
+      assert('D. dry B8 stop from 70 km/h on the flat: 145–165 m (v²/2a = 150 m minus running resistance, plus ≈ 10 m of jerk-limited brake build-up)', svDry.s > 145 && svDry.s < 165, `${svDry.s.toFixed(1)} m in ${svDry.t.toFixed(1)} s`);
+      assert('D. dry emergency stop from 70 km/h: 66–80 m (v²/2a = 69 m plus ≈ 5 m of brake build-up)', emDry.s > 66 && emDry.s < 80, `${emDry.s.toFixed(1)} m`);
       assert('D. dry emergency decel 60→20 km/h = 2.73 m/s² (+ ≤ 0.2 running resistance)', emDry.aPeak > 2.65 && emDry.aPeak < 2.95, `${emDry.aPeak.toFixed(2)} m/s²`);
       const svRain = stop('rain'), svSnow = stop('snow'), emSnow = stop('snow', { emergency: true }), emRain = stop('rain', { emergency: true });
       assert('D. low adhesion lengthens service braking: dry < rain < snow', svDry.s < svRain.s && svRain.s < svSnow.s, `${svDry.s.toFixed(0)} / ${svRain.s.toFixed(0)} / ${svSnow.s.toFixed(0)} m`);
-      assert('D. wet B8 deceleration 60→20 km/h is adhesion-limited by WSP (0.9·μ·g/1.08 ≈ 0.7–0.9 m/s² < 1.26)', svRain.aPeak < M.SERVICE_BRAKE_DECEL - 0.2, `${svRain.aPeak.toFixed(2)} m/s²`);
+      assert('D. snow B8 deceleration 60→20 km/h is adhesion-limited by WSP (0.9·μ·g/1.08 ≈ 0.5–0.9 m/s² < 1.26); wet rail (μ 0.22) is not', svSnow.aPeak < M.SERVICE_BRAKE_DECEL - 0.2 && svRain.aPeak > M.SERVICE_BRAKE_DECEL - 0.1, `snow ${svSnow.aPeak.toFixed(2)}, rain ${svRain.aPeak.toFixed(2)} m/s²`);
       assert('D. the magnetic track brake works through low adhesion: emergency on snow still stops shorter than dry service braking, and wet emergency < wet service',
         emSnow.s < svDry.s && emRain.s < svRain.s && emDry.s < emRain.s && emRain.s < emSnow.s, `emerg dry/rain/snow ${emDry.s.toFixed(0)}/${emRain.s.toFixed(0)}/${emSnow.s.toFixed(0)} m`);
-      const noWsp = stop('rain', { wsp: false });
-      assert('D. wheel-slide protection shortens a wet B8 stop (locked/sliding wheels lose force down the creep curve)', svRain.s < noWsp.s, `WSP ${svRain.s.toFixed(0)} m vs none ${noWsp.s.toFixed(0)} m`);
+      const noWsp = stop('snow', { wsp: false });
+      assert('D. wheel-slide protection shortens a snow B8 stop (locked/sliding wheels lose force down the creep curve)', svSnow.s < noWsp.s, `WSP ${svSnow.s.toFixed(0)} m vs none ${noWsp.s.toFixed(0)} m`);
       const half = stop('dry', { notch: 4 });
       assert('D. half-service (B4) stops in ≈ twice the distance of B8', half.s > 1.7 * svDry.s && half.s < 2.3 * svDry.s, `${half.s.toFixed(0)} m`);
       // vigilance failure = emergency brake application
@@ -138,8 +138,8 @@ export async function v144Tests(assert) {
       v.resetVigilance();
       assert('D. resetVigilance releases the emergency brake', !v.emergencyBrake && v.deadmanOk);
       const lvl = mk('dry'); lvl.powerNotch = 8;
-      lvl.step(0.05, 0, 0);
-      assert('D. full-power start acceleration ≈ 1.0 m/s² (Flexity family; includes the 1.08 rotating-mass factor)', near(lvl.speed / 0.05, 1.0, 0.1), `${(lvl.speed / 0.05).toFixed(2)} m/s²`);
+      let aPk = 0; for (let i = 0; i < 60; i++) { const v0 = lvl.speed; lvl.step(0.05, 0, 0); aPk = Math.max(aPk, (lvl.speed - v0) / 0.05); }
+      assert('D. full-power start acceleration peaks at ≈ 1.0 m/s² (Flexity family; includes the 1.08 rotating-mass factor) after the 1.34 m/s³ jerk ramp', near(aPk, 1.0, 0.1), `${aPk.toFixed(2)} m/s²`);
     }
 
     // ---- E. resistance ---------------------------------------------------------------------------------

@@ -10,11 +10,51 @@ export type TrackPoint = {
   y: number;
   z: number;
   s: number; // cumulative metres
-  grade: number; // rise/run
+  grade: number; // rise/run = tan θ (horizontal run, NOT slope length); Physics.gradeForce converts to sin θ
   curvature: number; // |1/radius| (chord-smoothed over ±CURV_HALF_WINDOW_M)
   /** Signed curvature: + = curving left (toward -x of heading frame), − = right. */
   curvSigned?: number;
 };
+
+/**
+ * Project a height profile y(hs) onto |dy/dhs| ≤ g (hs = horizontal chainage): Lipschitz clamp by
+ * forward + backward passes until stable. The projection is order-dependent, so the forward-first
+ * and backward-first results are averaged — the profile is then identical whichever way the line
+ * is built, and the average of two g-bounded profiles is still g-bounded.
+ */
+export function limitGrade(src: Float64Array, hs: ArrayLike<number>, g: number): Float64Array {
+  const n = src.length;
+  const run = (fwdFirst: boolean) => {
+    const yy = Float64Array.from(src);
+    const fwd = () => {
+      let ch = false;
+      for (let i = 1; i < n; i++) {
+        const m = g * (hs[i] - hs[i - 1]);
+        const c = Math.min(yy[i - 1] + m, Math.max(yy[i - 1] - m, yy[i]));
+        if (Math.abs(c - yy[i]) > 1e-9) { yy[i] = c; ch = true; }
+      }
+      return ch;
+    };
+    const bwd = () => {
+      let ch = false;
+      for (let i = n - 2; i >= 0; i--) {
+        const m = g * (hs[i + 1] - hs[i]);
+        const c = Math.min(yy[i + 1] + m, Math.max(yy[i + 1] - m, yy[i]));
+        if (Math.abs(c - yy[i]) > 1e-9) { yy[i] = c; ch = true; }
+      }
+      return ch;
+    };
+    for (let it = 0; it < 50; it++) {
+      const a = fwdFirst ? fwd() : bwd();
+      const b = fwdFirst ? bwd() : fwd();
+      if (!a && !b) break;
+    }
+    return yy;
+  };
+  const yf = run(true), yb = run(false);
+  for (let i = 0; i < n; i++) yf[i] = (yf[i] + yb[i]) / 2;
+  return yf;
+}
 
 export class Track {
   points: TrackPoint[] = [];
@@ -113,36 +153,13 @@ export class Track {
     // results so the profile is identical whichever way the line is built (the average of
     // two DESIGN_GRADE-bounded profiles is still bounded).
     const g = Track.DESIGN_GRADE;
-    const clamp = (src: Float64Array, fwdFirst: boolean) => {
-      const yy = Float64Array.from(src);
-      const fwd = () => {
-        let ch = false;
-        for (let i = 1; i < n; i++) {
-          const m = g * (hs[i] - hs[i - 1]);
-          const c = Math.min(yy[i - 1] + m, Math.max(yy[i - 1] - m, yy[i]));
-          if (Math.abs(c - yy[i]) > 1e-9) { yy[i] = c; ch = true; }
-        }
-        return ch;
-      };
-      const bwd = () => {
-        let ch = false;
-        for (let i = n - 2; i >= 0; i--) {
-          const m = g * (hs[i + 1] - hs[i]);
-          const c = Math.min(yy[i + 1] + m, Math.max(yy[i + 1] - m, yy[i]));
-          if (Math.abs(c - yy[i]) > 1e-9) { yy[i] = c; ch = true; }
-        }
-        return ch;
-      };
-      for (let it = 0; it < 50; it++) {
-        const a = fwdFirst ? fwd() : bwd();
-        const b = fwdFirst ? bwd() : fwd();
-        if (!a && !b) break;
-      }
-      return yy;
-    };
-    const yf = clamp(y, true), yb = clamp(y, false);
-    for (let i = 0; i < n; i++) y[i] = (yf[i] + yb[i]) / 2;
+    y = limitGrade(y, hs, g);
     y = gauss(y, sigma2);
+    // The Gaussian weights are per vertex, not per metre, and the vertex spacing is uneven
+    // (3–5 m after densify), so the smoothed profile can overshoot the cap slightly (up to 4.9 % at
+    // a 4.5 % cap in v1.4.4, ≈ 300 m of SB). A final projection makes the cap hold exactly; the
+    // largest correction is < 0.5 % over a few metres, i.e. a vertical radius > 1000 m.
+    y = limitGrade(y, hs, g);
     for (let i = 0; i < n; i++) pts[i].y = y[i];
     this.recomputeChainage();
   }
@@ -178,6 +195,9 @@ export class Track {
       }
       pts[i].y += sv / sw;
     }
+    // keep the shared formation inside the same design-grade cap as every other profile
+    const y = limitGrade(Float64Array.from(pts.map((q) => q.y)), hs, Track.DESIGN_GRADE);
+    for (let i = 0; i < n; i++) pts[i].y = y[i];
     this.recomputeChainage();
     this.recomputeDerivatives();
   }
@@ -377,7 +397,8 @@ export class Track {
     pts[0].curvature = 0;
     for (let i = 1; i < pts.length; i++) {
       const a = pts[i - 1], b = pts[i];
-      const ds = Math.max(0.1, b.s - a.s);
+      // rise / horizontal run (b.s − a.s is slope length, which would give sin θ, not tan θ)
+      const ds = Math.max(0.1, Math.hypot(b.x - a.x, b.z - a.z));
       let g = (b.y - a.y) / ds;
       if (!Number.isFinite(g)) g = 0;
       b.grade = Math.max(-maxG, Math.min(maxG, g));

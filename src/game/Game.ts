@@ -524,7 +524,9 @@ export class Game {
   private loop = () => {
     if (this.finished || !this.running) return;
     requestAnimationFrame(this.loop);
-    const dt = Math.min(0.05, this.clock.getDelta());
+    // Math.min(0.05, NaN) is NaN: a bad clock reading would poison speed, sand cover and μ for good.
+    const rawDt = this.clock.getDelta();
+    const dt = Number.isFinite(rawDt) && rawDt > 0 ? Math.min(0.05, rawDt) : 0;
     this.handleInput(dt);
     this.simClock += dt;
 
@@ -564,6 +566,8 @@ export class Game {
       this.physics.powerNotch = 0;
     }
 
+    // ATP-style supervision: penalty brake + traction cut-out above limit + 5 km/h (Physics.enforceSpeedLimit)
+    this.physics.enforceSpeedLimit(limit);
     this.physics.step(dt, sample.grade, sample.curvature);
     const ds = this.physics.speed * dt;
     const [sLo, sHi] = this.sLimits();

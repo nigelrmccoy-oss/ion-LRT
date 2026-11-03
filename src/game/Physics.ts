@@ -36,10 +36,16 @@ export const AXLE_FRAC_CN = 120000 / MASS_CN_KG;
 export const VMAX_ELECTRIC_MS = 80 / 3.6;
 export const VMAX_DIESEL_MS = 95 / 3.6;
 
-/** Civil speed-limit by ROW class (km/h) */
+/**
+ * Civil speed-limit by ROW class (km/h).
+ * SOURCE (street 50, reserved 70): Wikipedia "Ion rapid transit" — "maximum operating speed of Ion
+ * light rail vehicles is 50 km/h along city streets and 70 km/h along railway rights of way"
+ * (citing Waterloo Region Record, 19 Dec 2017); the same article gives 20–25 km/h where pedestrian
+ * traffic is high → station 25 (ESTIMATE inside that range). v1.4.4 used an unsourced 40 for street.
+ */
 export const SPEED_LIMITS_KMH = {
   station: 25,
-  street: 40,
+  street: 50,
   reserved: 70,
 } as const;
 
@@ -79,6 +85,39 @@ export const TRACK_BRAKE_DECEL = EMERGENCY_BRAKE_DECEL - SERVICE_BRAKE_DECEL;
 /** Track brake needs motion to drag the magnets (m/s). ESTIMATE. */
 export const TRACK_BRAKE_MIN_SPEED_MS = 0.5;
 /**
+ * The magnetic track brake is a magnet-shoe-on-rail friction brake, so it is NOT independent of
+ * rail condition: wet, leaf, ice and grease films cut its force (field tests of an EMU's MTB on
+ * water / leaf / grease contaminated rail: Proc. IMechE Part F 2011, doi 10.1177/0954409711408375).
+ * Factor on TRACK_BRAKE_DECEL by rail condition. Dry 1.0. Contaminated rail: EN 16207 is
+ * reported (secondary summary, railwaynews.net — not verified against the standard) to require
+ * μ ≥ 0.25 dry and ≥ 0.15 wet/contaminated → 0.6; used for snow and leaf. Rain 0.8 is an
+ * ESTIMATE between the two (a plain water film hurts less than leaves/ice). Cross-check: the
+ * Flexity Outlook data sheet lists 6 × 81 kN = 486 kN magnet pull; the 1.47 m/s² share of a
+ * 49.8 t car (73 kN) implies μ ≈ 0.15 on that pull — i.e. the sheet's emergency rate is already
+ * a conservative (wet-rated) figure, so dry rail is capped at 1.0 rather than scaled up.
+ */
+export const TRACK_BRAKE_CONDITION_FACTOR: Record<RailCondition, number> = { dry: 1, rain: 0.8, snow: 0.6, leaf: 0.6 };
+/**
+ * Jerk (rate of change of acceleration) limits, m/s³. v1.4.4 stepped every force instantly
+ * (0 → −2.8 m/s² in one 20 ms frame).
+ *  Traction  1.34 m/s³ — DART light-rail design criteria vehicle jerk limit 3.0 mphpsps ±10 %
+ *            (3.0 mph/s² = 1.34 m/s³). Cross-checks: RTD Denver LRT Design Criteria 2024 §13.2.6.6
+ *            2.0 m/s³ +10 %; Italian UNI tram requirement ≤ 1.5 m/s³ (Megna et al., Urban Rail
+ *            Transit 8, 2022, doi 10.1007/s40864-021-00163-6).
+ *  Service brake 1.2 m/s³ — Yarra Trams "Rolling Stock – Tram – Braking Systems" §4.2.2.2:
+ *            instantaneous jerk for service braking ≤ 1.2 m/s³.
+ *  Emergency brake 5 m/s³ — ESTIMATE. RTD §13.2.6.6: "emergency brake applications shall not be
+ *            jerk limited"; EN 13452-1 only defines a build-up time (project-specific). 5 m/s³
+ *            builds the 2.73 m/s² emergency rate in 0.55 s (real MTB + hydraulic build-up is
+ *            fractions of a second); the magnet itself is quoted ≈ 0.3 s but that figure is a
+ *            secondary source.
+ */
+export const JERK_TRACTION_MS3 = 1.34;
+export const JERK_SERVICE_BRAKE_MS3 = 1.2;
+export const JERK_EMERGENCY_BRAKE_MS3 = 5;
+/** Largest dt (s) a single step integrates; bigger gaps (tab switch, debugger) are clamped, not extrapolated. */
+export const MAX_STEP_DT_S = 0.25;
+/**
  * Rotating-mass factor: wheels, gears and motor rotors make the vehicle accelerate like
  * 1.06–1.10 × its static mass for a complete train (J.-M. Allenbach, "Electric Traction —
  * Base Principles", fig. 3.13). Mid value 1.08 (also gives 1.0 m/s² start accel at 56 t / 62 kN,
@@ -92,28 +131,37 @@ export const ROTATING_MASS_FACTOR = 1.08;
  * Design peak adhesion μ at standstill by rail condition (clean steel-on-steel unless noted).
  *  dry  0.30  Curtius–Kniffler dry μ(0)=7.5/44+0.161=0.33 (Curtius & Kniffler 1944 / Allenbach
  *             fig. 3.15) derated ≈ 10 % for design (typical dry range 0.2–0.4; RSSB / Integrail).
- *  rain 0.15  wet clean rail 0.10–0.20 (RSSB "Managing low adhesion"; Integrail slip/slide
- *             glossary); GB braking design minimum 0.09 (RSSB) is reached at speed (below).
+ *  rain 0.22  wet rail, standstill value of the Curtius–Kniffler shape. v1.4.4's 0.15 was low.
+ *             Field data: British Rail tribometer-train wet values ≈ 0.20 and Ontrak tribometer
+ *             wet median 0.20 vs dry 0.31 (Proc. IMechE Part F 2023, doi 10.1177/09544097231209483);
+ *             "wet 0.25" in the classic adhesion literature (Advanced Steam Traction / Koffman);
+ *             FRA "A Survey of Wheel/Rail Friction": design traction limits 0.17–0.20, braking
+ *             0.15 (Stockholm) / 0.09 (UK) — 0.22 sits at the top of the design range and the
+ *             speed shape takes it to ≈ 0.14 at 70 km/h. The same field data show contaminated
+ *             rail far below that, hence snow/leaf stay low.
  *  snow 0.10  snow / frost / ice film: ESTIMATE inside the 0.05–0.15 range quoted for
  *             contaminated rail (no ION measurement exists).
  *  leaf 0.05  wet-leaf film 0.015–0.05 (RDG, "Leaves on the line"/Ingenia 2019).
  */
-export const RAIL_MU: Record<RailCondition, number> = { dry: 0.30, rain: 0.15, snow: 0.10, leaf: 0.05 };
+export const RAIL_MU: Record<RailCondition, number> = { dry: 0.30, rain: 0.22, snow: 0.10, leaf: 0.05 };
 /**
  * Peak μ with sand effectively covering the rail head (Skipper 2022, Univ. Sheffield PhD /
  * Wear 2024: sanded peak adhesion dry 0.4–0.5, wet 0.3–0.4, leaf 0.1–0.2 in tests; Meierhofer
  * measured 0.3–0.4 wet sanded). The values below are deliberately conservative fractions of
  * those laboratory peaks (a moving train gets patchy cover) — ESTIMATES.
  */
-export const SANDED_MU: Record<RailCondition, number> = { dry: 0.35, rain: 0.25, snow: 0.18, leaf: 0.12 };
+export const SANDED_MU: Record<RailCondition, number> = { dry: 0.35, rain: 0.30, snow: 0.18, leaf: 0.12 };
 /** Sand takes time to reach and cover the rail head (s to full effect) and stays after a pass (s to fade). ESTIMATES. */
 export const SAND_RAMP_UP_S = 1.0;
 export const SAND_FADE_S = 3.0;
 
 /**
- * Critical creep s_c (creep at peak adhesion) by condition. Order of magnitude from
- * Polach 2005 (Wear 258) / Kalker: peak at ≈1–2 % creep on dry rail, shifting to larger creep
- * on wet and contaminated rail. ESTIMATES (no ION data).
+ * Critical creep s_c (creep at peak adhesion) by condition. THESE ARE ESTIMATES, not measured
+ * ION values: only the order of magnitude comes from Polach 2005 (Wear 258) / Kalker — peak at
+ * ≈ 1–2 % creep on dry rail, shifting to larger creep on wet and contaminated rail. The
+ * creep curve below is a simplified Polach-style SHAPE (linear rise, one peak, falling branch to
+ * A = μ∞/μ0), not Polach's full contact model (no spin, no contact-ellipse integration, no
+ * speed-dependent friction-drop exponent); its absolute creep numbers are indicative only.
  */
 export const CRITICAL_CREEP: Record<RailCondition, number> = { dry: 0.015, rain: 0.025, snow: 0.035, leaf: 0.04 };
 /**
@@ -129,7 +177,9 @@ const CREEP_X_MAX = 12;
 /**
  * Quasi-static creep-force characteristic, force / peak force versus x = s / s_c:
  * linear rise to the peak at x = 1 (2x/(1+x²), Kalker-like), then a falling branch towards
- * the large-slip level POLACH_A. Continuous, peak = 1 at x = 1.
+ * the large-slip level POLACH_A. Continuous, peak = 1 at x = 1. SIMPLIFIED Polach-style shape
+ * (see CRITICAL_CREEP): the form is chosen for a stable inverse on the rising branch and the
+ * Polach A = 0.40 large-slip limit — it is not Polach's published force law.
  */
 export function creepForceFraction(x: number): number {
   const u = Math.abs(x);
@@ -282,6 +332,27 @@ export function isOverspeed(speedKmh: number, limitKmh: number, margin = 2): boo
   return speedKmh > limitKmh + margin;
 }
 
+/**
+ * ATP-style overspeed supervision. The driver's HUD warning stays at limit + 2 km/h (isOverspeed).
+ * Penalty (full-service) brake with traction cut-out is applied at limit + 5 km/h and released when
+ * the speed is back at or below the limit. NO SOURCE: the +5 km/h penalty margin is an ESTIMATE
+ * (no published ION/Freedom overspeed-enforcement figure was found); it only needs to sit above
+ * the +2 km/h HUD warning and well below a dangerous overspeed. The vehicle maximum (80 km/h,
+ * VMAX_*) is enforced the same way instead of a hard clamp.
+ */
+export const OVERSPEED_PENALTY_MARGIN_KMH = 5;
+/** Backstop: speed is hard-limited only this factor above the vehicle maximum (e.g. a runaway downhill). */
+export const VMAX_BACKSTOP_FACTOR = 1.1;
+
+/**
+ * Speed after dt on the jerk-limited stopping profile v' = −√(2·J·v) (deceleration a = √(2·J·v)
+ * falls to zero at rest at exactly the jerk J): v(t) = (√v₀ − √(J/2)·t)², exact for any dt.
+ */
+export function jerkLimitedSpeed(v: number, jerk: number, dt: number): number {
+  const r = Math.sqrt(Math.max(0, v)) - Math.sqrt(jerk / 2) * dt;
+  return r > 0 ? r * r : 0;
+}
+
 /** Real-ish LRV / light diesel physics in SI units. */
 export class TrainPhysics {
   massKg: number;
@@ -320,6 +391,17 @@ export class TrainPhysics {
   /** Normalised creep x = s/s_c of the powered axles (traction) and of all axles (braking). > 1 = past the adhesion peak. */
   creepXTraction = 0;
   creepXBrake = 0;
+  /** ATP-style penalty brake: set by enforceSpeedLimit() on overspeed, cleared when back under the limit. */
+  overspeedPenalty = false;
+  /**
+   * Jerk-limited command states (accelerations, m/s²): demanded traction, friction brake and
+   * magnetic track brake after the jerk limiter. Forces are these × the effective mass.
+   */
+  cmdTractionA = 0;
+  cmdFrictionA = 0;
+  cmdTrackA = 0;
+  /** Hold-brake application, m/s² (ramped up; released at once). */
+  cmdHoldA = 0;
 
   axleFrac: number;
 
@@ -360,12 +442,17 @@ export class TrainPhysics {
   /** Max traction effort N vs speed (simplified Flexity / diesel curve). */
   maxTE(speedMs: number) {
     if (this.electric) {
-      if (!this.pantographUp || this.lineVoltage < 500) return 0;
-      // ESTIMATE: Bombardier publishes no motor/TE figure for the Freedom. 4 × ~80 kW
-      // asynchronous motors, ~62 kN start (≈ 1.0 m/s² at 56 t with the rotating-mass factor,
-      // the Flexity-family acceleration figure)
+      if (!this.pantographUp || !(this.lineVoltage >= 500)) return 0;
+      // Motor power: 4 × 100 kW three-phase asynchronous motors = 400 kW — SOURCE: Bombardier
+      // FLEXITY Outlook (Innsbruck) data sheet "Four 3-phase asynchronous motors, 100 kW motor
+      // power", same Bo'2Bo' layout with 2 powered bogies (also strassenbahn-online.de data table
+      // for the Outlook family: 4 × 100 kW). The Freedom's own motor rating is not published, so
+      // 400 kW is sibling-platform data (v1.4.4's 320 kW was an unsourced 4 × 80 kW guess).
+      // Starting TE 62 kN = 1.0 m/s² at 56 t × 1.08 rotating mass — the Outlook sheet's average
+      // acceleration (2/3 load) of 1 m/s². ESTIMATE. Consistency: 62 kN × 6.45 m/s = 400 kW, i.e.
+      // constant-TE up to 23 km/h and constant power (TE = P/v) above.
       const te0 = 62000;
-      const pMax = 320000 * (this.lineVoltage / 750);
+      const pMax = 400000 * (this.lineVoltage / 750);
       if (speedMs < 1) return te0;
       return Math.min(te0, pMax / speedMs);
     }
@@ -381,7 +468,11 @@ export class TrainPhysics {
     return davisResistanceN(this.massKg, speedMs, this.electric ? DAVIS_FLEXITY : DAVIS_DIESEL);
   }
 
-  /** Grade force N (+ uphill). `grade` = rise/run; the along-track component is g·grade/√(1+grade²). */
+  /**
+   * Grade force N (+ uphill). `grade` = rise/run (Track.grade, i.e. tan θ); the along-track
+   * component of weight is m·g·sin θ = m·g·grade/√(1+grade²). (v1.4.4's Track stored sin θ under
+   * the name "rise/run", so this conversion was applied twice; Track now stores true rise/run.)
+   */
   gradeForce(grade: number) {
     return this.massKg * 9.81 * (grade / Math.sqrt(1 + grade * grade));
   }
@@ -403,46 +494,125 @@ export class TrainPhysics {
     return this.baseMu() * curtiusKnifflerFactor(Math.abs(speedMs) * 3.6, this.railCondition());
   }
 
-  /** Highest braking deceleration (m/s², vs inertial mass) the rail can give at this speed on the flat. */
-  adhesionDecel(speedMs: number) {
-    return (this.adhesionAt(speedMs) * 9.81) / ROTATING_MASS_FACTOR;
+  /**
+   * Highest braking deceleration (m/s², vs inertial mass) the rail can give at this speed.
+   * All axles brake, and the wheel–rail normal force is m·g·cos θ (cos θ = 1/√(1+grade²) for a
+   * rise/run grade); v1.4.4 omitted that factor on the brake side only.
+   */
+  adhesionDecel(speedMs: number, grade = 0) {
+    const g = Number.isFinite(grade) ? grade : 0;
+    return (this.adhesionAt(speedMs) * 9.81) / Math.sqrt(1 + g * g) / ROTATING_MASS_FACTOR;
+  }
+
+  /**
+   * ATP-style overspeed supervision (call once per frame with the civil/curve limit at the train).
+   * Penalty service brake + traction cut-out above limit + OVERSPEED_PENALTY_MARGIN_KMH, released
+   * when the speed is back at or below the limit. The vehicle maximum is enforced the same way.
+   * Returns whether the penalty is active.
+   */
+  enforceSpeedLimit(limitKmh: number): boolean {
+    const lim = Math.min(Number.isFinite(limitKmh) ? limitKmh : Infinity, this.vMaxMs() * 3.6);
+    const v = this.speedKmh();
+    if (!Number.isFinite(v)) this.overspeedPenalty = false;
+    else if (v > lim + OVERSPEED_PENALTY_MARGIN_KMH) this.overspeedPenalty = true;
+    else if (v <= lim) this.overspeedPenalty = false;
+    return this.overspeedPenalty;
+  }
+
+  private lastResult = { te: 0, a: 0, resist: 0, Fbrake: 0, demandTE: 0, demandBrake: 0, maxAdhesion: 0, creepTraction: 0, creepBrake: 0 };
+
+  /** Replace any non-finite or out-of-range state/input with a safe value so one bad frame cannot poison later ones. */
+  private sanitize() {
+    const fin = (x: number, d: number) => (Number.isFinite(x) ? x : d);
+    this.speed = fin(this.speed, 0);
+    this.sandCover = Math.max(0, Math.min(1, fin(this.sandCover, 0)));
+    this.autoSandTimer = Math.max(0, fin(this.autoSandTimer, 0));
+    this.vigilanceTimer = fin(this.vigilanceTimer, 45);
+    this.creepXTraction = Math.max(0, fin(this.creepXTraction, 0));
+    this.creepXBrake = Math.max(0, fin(this.creepXBrake, 0));
+    this.cmdTractionA = fin(this.cmdTractionA, 0);
+    this.cmdFrictionA = fin(this.cmdFrictionA, 0);
+    this.cmdTrackA = fin(this.cmdTrackA, 0);
+    this.cmdHoldA = fin(this.cmdHoldA, 0);
+    this.lineVoltage = fin(this.lineVoltage, 0);
+    this.powerNotch = Math.max(0, Math.min(8, fin(this.powerNotch, 0)));
+    this.brakeNotch = Math.max(0, Math.min(8, fin(this.brakeNotch, 0)));
+  }
+
+  /**
+   * Jerk limiter. Moves each command towards its target while the sum of the time each channel
+   * would need at its own jerk limit stays within dt, so the net rate of change of acceleration
+   * never exceeds the largest single limit (traction and brake changes share the budget).
+   */
+  private ramp(dt: number, targets: number[], current: number[], jerk: number[]): number[] {
+    let need = 0;
+    for (let i = 0; i < targets.length; i++) need += Math.abs(targets[i] - current[i]) / jerk[i];
+    const k = need > dt ? dt / need : 1;
+    return current.map((c, i) => c + (targets[i] - c) * k);
   }
 
   step(dt: number, grade: number, curvature: number) {
-    // Non-finite grade/curvature → 0 so speed never becomes NaN
+    // Guard dt and every input: a NaN/∞/≤0 dt is a skipped frame, not a poisoned state.
+    if (!Number.isFinite(dt) || dt <= 0 || !(this.massKg > 0)) return { ...this.lastResult };
+    dt = Math.min(dt, MAX_STEP_DT_S);
+    this.sanitize();
     if (!Number.isFinite(grade)) grade = 0;
     if (!Number.isFinite(curvature)) curvature = 0;
+    grade = Math.max(-1, Math.min(1, grade));
 
     // Sand reaches the rail with a delay and leaves a film behind
     this.sandCover = this.sandActive()
       ? Math.min(1, this.sandCover + dt / SAND_RAMP_UP_S)
       : Math.max(0, this.sandCover - dt / SAND_FADE_S);
 
-    // Doors interlock / reverser / vigilance
-    const canPower = !this.doorsOpen && this.reverser !== 0 && this.deadmanOk;
+    // Doors interlock / reverser / vigilance / overspeed penalty
+    const canPower = !this.doorsOpen && this.reverser !== 0 && this.deadmanOk && !this.overspeedPenalty;
     const notchP = canPower ? this.powerNotch : 0;
-    const demandTE = (notchP / 8) * this.maxTE(Math.abs(this.speed));
     const mEff = this.effMassKg();
+    const absV = Math.abs(this.speed);
+
+    // ── jerk-limited commands (m/s²) ──
+    const emergency = this.emergencyBrake;
+    const frictionNotch = emergency || this.overspeedPenalty ? 8 : this.brakeNotch;
+    const tgtTE = (notchP / 8) * this.maxTE(absV) / mEff;
+    const tgtFric = (frictionNotch / 8) * SERVICE_BRAKE_DECEL;
+    const tgtTrack = emergency && absV > TRACK_BRAKE_MIN_SPEED_MS ? TRACK_BRAKE_DECEL * TRACK_BRAKE_CONDITION_FACTOR[this.railCondition()] : 0;
+    // Hold brake: applied with the service jerk limit, released at once (TE is ramped, so the net force stays continuous)
+    const tgtHold = this.holdBrake ? (this.massKg * HOLD_BRAKE_DECEL) / mEff : 0;
+    // Traction cut-out on an emergency / interlock is immediate (EN 13452-1 §5.1.3: traction is cut off at once)
+    if (!canPower) this.cmdTractionA = 0;
+    if (!this.holdBrake) this.cmdHoldA = 0;
+    const jFric = emergency ? JERK_EMERGENCY_BRAKE_MS3 : JERK_SERVICE_BRAKE_MS3;
+    const [cT, cF, cK, cH] = this.ramp(
+      dt,
+      [canPower ? tgtTE : 0, tgtFric, tgtTrack, tgtHold],
+      [this.cmdTractionA, this.cmdFrictionA, this.cmdTrackA, this.cmdHoldA],
+      [JERK_TRACTION_MS3, jFric, JERK_EMERGENCY_BRAKE_MS3, JERK_SERVICE_BRAKE_MS3],
+    );
+    this.cmdTractionA = cT; this.cmdFrictionA = cF; this.cmdTrackA = cK; this.cmdHoldA = cH;
+
+    const demandTE = this.cmdTractionA * mEff;
     // Powered-axle adhesion weight (not full consist mass), normal force on grade
-    const axleLoad = this.massKg * 9.81 * this.axleFrac / Math.sqrt(1 + grade * grade);
+    const cosT = 1 / Math.sqrt(1 + grade * grade);
+    const axleLoad = this.massKg * 9.81 * this.axleFrac * cosT;
     const peakT = this.adhesionAt(this.speed) * axleLoad;
 
     // Brakes: blended regen + friction at SERVICE_BRAKE_DECEL (B8), limited by adhesion
-    // (brake adhesion uses all axles: friction brakes on the trailer truck too); the emergency
-    // brake adds the magnetic track brake, which does not depend on wheel–rail adhesion.
-    const frictionNotch = this.emergencyBrake ? 8 : this.brakeNotch;
-    const demandBrake = (frictionNotch / 8) * mEff * SERVICE_BRAKE_DECEL;
-    const peakB = this.adhesionAt(this.speed) * this.massKg * 9.81;
+    // (brake adhesion uses all axles: friction brakes on the trailer truck too, normal force
+    // m·g·cos θ like traction); the emergency brake adds the magnetic track brake, which does
+    // not depend on wheel–rail adhesion (but does on rail contamination: TRACK_BRAKE_CONDITION_FACTOR).
+    const demandBrake = this.cmdFrictionA * mEff;
+    const peakB = this.adhesionAt(this.speed) * this.massKg * 9.81 * cosT;
 
     const teSlip = notchP > 0 && demandTE > peakT;
-    const brakeSlip = frictionNotch > 0 && Math.abs(this.speed) > 0.05 && demandBrake > peakB;
+    const brakeSlip = demandBrake > 0 && absV > 0.05 && demandBrake > peakB;
     this.wheelslip = teSlip || brakeSlip;
 
     // Creep-force curve: held on the rising branch (slip control / WSP), or — without it —
     // sliding past the peak down the falling branch until demand drops below the available force.
     const teFrac = this.electric ? SLIP_CONTROL_TE_FRAC_ELECTRIC : SLIP_CONTROL_TE_FRAC_DIESEL;
     let te = 0;
-    if (notchP <= 0 || peakT <= 0) { this.creepXTraction = 0; }
+    if (demandTE <= 0 || peakT <= 0) { this.creepXTraction = 0; }
     else if (this.slipControl) {
       te = Math.min(demandTE, teFrac * peakT);
       this.creepXTraction = creepFromForceFraction(te / peakT);
@@ -451,8 +621,10 @@ export class TrainPhysics {
     }
 
     let Fbrake = 0;
-    if (frictionNotch <= 0 || Math.abs(this.speed) <= 0.05) {
-      Fbrake = Math.min(demandBrake, peakB);
+    if (demandBrake <= 0 || absV <= 0.05) {
+      // near rest the creep state is not integrated, but WSP still holds the same fraction of the peak as
+      // above 0.05 m/s (an un-derated peak here was a 0.2 m/s² step in the last metres of a leaf stop)
+      Fbrake = Math.min(demandBrake, this.slipControl ? SLIDE_CONTROL_BRAKE_FRAC * peakB : peakB);
       this.creepXBrake = 0;
     } else if (this.slipControl) {
       Fbrake = Math.min(demandBrake, SLIDE_CONTROL_BRAKE_FRAC * peakB);
@@ -460,7 +632,8 @@ export class TrainPhysics {
     } else {
       [Fbrake, this.creepXBrake] = this.creepLimited(demandBrake, peakB, this.creepXBrake, dt);
     }
-    if (this.emergencyBrake && Math.abs(this.speed) > TRACK_BRAKE_MIN_SPEED_MS) Fbrake += mEff * TRACK_BRAKE_DECEL;
+    const FfrictionStatic = Fbrake; // service friction only (static case adds the full hold brake)
+    Fbrake += mEff * this.cmdTrackA;
 
     // Automatic sanding: armed by any slip/slide, sands for AUTO_SAND_HOLD_S afterwards
     if (this.autoSand && this.wheelslip) this.autoSandTimer = AUTO_SAND_HOLD_S;
@@ -472,53 +645,65 @@ export class TrainPhysics {
 
     // Hold brake: engage at standstill (or ≤ HOLD_BRAKE_MS with doors open / interlock),
     // release only when TE in the selected direction beats the grade force.
-    const interlocked = !canPower || (this.electric && (!this.pantographUp || this.lineVoltage < 500));
+    const interlocked = !canPower || (this.electric && (!this.pantographUp || !(this.lineVoltage >= 500)));
     const tractionWins = dir !== 0 && notchP > 0 && dir * (dir * te - Fgrade) > 0;
-    const slowEnough = Math.abs(this.speed) < (this.doorsOpen || interlocked ? HOLD_BRAKE_MS : STANDSTILL_MS);
+    const slowEnough = absV < (this.doorsOpen || interlocked ? HOLD_BRAKE_MS : STANDSTILL_MS);
     if (tractionWins && !this.doorsOpen) this.holdBrake = false;
     else if (slowEnough) this.holdBrake = true;
-    else if (Math.abs(this.speed) >= HOLD_BRAKE_MS) this.holdBrake = false;
-    if (this.holdBrake) {
-      Fbrake += this.massKg * HOLD_BRAKE_DECEL;
-    }
+    else if (absV >= HOLD_BRAKE_MS) this.holdBrake = false;
+    if (!this.holdBrake) this.cmdHoldA = 0;
+    const FholdFull = this.holdBrake ? this.massKg * HOLD_BRAKE_DECEL : 0;
+
+    // Stop smoothing: a jerk-limited stop has a ≤ √(2·J·v) near rest, so braking force is tapered
+    // instead of the v1.4.4 hard "speed = 0" snap (7.8 m/s² in one frame). Gravity pulling the car
+    // along its direction of travel is always countered in full so a stop on a down-grade works.
+    const jStop = emergency ? JERK_EMERGENCY_BRAKE_MS3 : JERK_SERVICE_BRAKE_MS3;
 
     let a: number;
-    if (Math.abs(this.speed) < STANDSTILL_MS) {
+    const vStart = this.speed;
+    if (absV < STANDSTILL_MS) {
       // Static case: rolling/curve resistance and brakes are reaction forces — they can
       // hold the car but never push it backwards (v1.3 applied them with sign(dir),
       // which made the car jitter ±0.3 m/s and "creep" when TE < resistance).
       const applied = dir * te - Fgrade;
-      const holding = resist + Fbrake;
+      const holding = resist + FfrictionStatic + mEff * this.cmdTrackA + FholdFull;
       if (Math.abs(applied) <= holding) {
-        this.speed = 0;
-        a = 0;
+        // coast to rest along the jerk-limited profile instead of snapping to 0
+        const sv0 = Math.sign(this.speed);
+        // …but never faster than the brakes can actually decelerate the car (a leaf stop is adhesion-limited
+        // to ≈ 0.4 m/s², below the profile's √(2·J·v) in the last few cm)
+        // (the hold brake counts only at its ramped level here: it holds a stopped car at once, but it builds up like any brake)
+        const holdNow = resist + FfrictionStatic + mEff * this.cmdTrackA + (this.holdBrake ? mEff * this.cmdHoldA : 0);
+        const aHold = Math.max(0, holdNow + sv0 * applied) / mEff;
+        this.speed = sv0 * Math.max(jerkLimitedSpeed(absV, jStop, dt), absV - aHold * dt, 0);
+        a = (this.speed - vStart) / dt;
       } else {
         a = (applied - Math.sign(applied) * holding) / mEff;
         this.speed += a * dt;
       }
     } else {
       const sv = Math.sign(this.speed);
-      const F = dir * te - sv * (Fbrake + resist) - Fgrade;
+      const gradeHold = Math.max(0, -sv * Fgrade);
+      const FbrakeTotal = Fbrake + this.cmdHoldA * mEff;
+      const aCap = (absV - jerkLimitedSpeed(absV, jStop, dt)) / dt; // decel of the jerk-limited stop profile over this step
+      const FbrakeEff = Math.min(FbrakeTotal, gradeHold + Math.max(0, mEff * aCap - resist));
+      const F = dir * te - sv * (FbrakeEff + resist) - Fgrade;
       a = F / mEff;
       const next = this.speed + a * dt;
       // Resistive forces may stop the car but not reverse it within one step
-      if (Math.sign(next) !== sv && Math.abs(dir * te - Fgrade) <= Fbrake + resist) {
+      if (Math.sign(next) !== sv && Math.abs(dir * te - Fgrade) <= FbrakeEff + resist) {
         this.speed = 0;
       } else {
         this.speed = next;
       }
+      Fbrake = FbrakeEff;
     }
     if (!Number.isFinite(this.speed)) this.speed = 0;
 
-    // Vehicle max speed cap (after integrate)
-    const vmax = this.vMaxMs();
-    if (Math.abs(this.speed) > vmax) {
-      this.speed = Math.sign(this.speed) * vmax;
-    }
-
-    // stop creep
-    if (this.brakeNotch >= 7 && Math.abs(this.speed) < 0.15) this.speed = 0;
-    if (this.reverser === 0 && Math.abs(this.speed) < 0.2) this.speed = 0;
+    // Vehicle maximum is enforced by the ATP-style penalty brake (enforceSpeedLimit); the hard
+    // clamp is only a backstop a little above it.
+    const vcap = this.vMaxMs() * VMAX_BACKSTOP_FACTOR;
+    if (Math.abs(this.speed) > vcap) this.speed = Math.sign(this.speed) * vcap;
 
     // Vigilance: speed-dependent like real LRV/loco devices — it does not count down at
     // a standstill (v1.4.1 penalised a 45 s station dwell with an emergency brake).
@@ -530,7 +715,8 @@ export class TrainPhysics {
       this.emergencyBrake = true; // vigilance penalty = emergency brake application
     }
 
-    return { te, a, resist, Fbrake, demandTE, demandBrake, maxAdhesion: peakT, creepTraction: this.creepTraction(), creepBrake: this.creepBrake() };
+    this.lastResult = { te, a, resist, Fbrake, demandTE, demandBrake, maxAdhesion: peakT, creepTraction: this.creepTraction(), creepBrake: this.creepBrake() };
+    return { ...this.lastResult };
   }
 
   /**
@@ -565,6 +751,7 @@ export class TrainPhysics {
   powerBlockedReason(): string | null {
     if (this.doorsOpen) return 'Doors open — close with T';
     if (this.reverser === 0) return 'Reverser Neutral — press R for Forward';
+    if (this.overspeedPenalty) return 'Overspeed penalty brake — slow below the limit';
     if (!this.deadmanOk) return 'Vigilance penalty — notch W/S to reset';
     if (this.electric && !this.pantographUp) return 'Pantograph down — press P';
     if (this.electric && this.lineVoltage < 500) return 'Line voltage low';

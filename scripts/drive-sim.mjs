@@ -33,7 +33,7 @@ export async function bundleGame() {
   const src = (f) => JSON.stringify(path.join(root, 'src/game', f));
   await writeFile(entry, [
     `export * from ${src('Physics.ts')};`,
-    `export { Track } from ${src('Track.ts')};`,
+    `export { Track, limitGrade } from ${src('Track.ts')};`,
     `export { Elevation } from ${src('elevation.ts')};`,
     `export { RowClassifier } from ${src('Row.ts')};`,
     `export * from ${src('Signals.ts')};`,
@@ -150,7 +150,7 @@ export function driveRun(M, W, cfg) {
   let dwellUntil = -1, phase = 'run';
   let notchTimer = 0, sandUntil = -1, slipEv = 0, slipT = 0, wasSlip = false;
   let maxExcess = -99, overT = 0, maxGrade = 0, minMu = 9, nanSeen = false, vigPen = 0, vigAck = 0;
-  let maxStall = 0, stallRun = 0, heldRedT = 0, holdBrakeRoll = 0;
+  let maxStall = 0, stallRun = 0, heldRedT = 0, holdBrakeRoll = 0, penaltyT = 0;
   const stops = [];
   const problems = [];
   const events = [];
@@ -213,7 +213,11 @@ export function driveRun(M, W, cfg) {
     for (let d = 0; d <= Math.min(horizon, 400); d += 10) down = Math.max(down, -grd[Math.min(N - 1, Math.round(s + d))]);
     const bPlan = Math.max(0.12, Math.min(0.85, 0.8 * muB) - G * down);
     let aReq = 0, vAllow = Infinity;
-    const cons = (Lms, d) => {
+    // brake build-up lag: the service brake needs ≈ a/J ≈ 0.7 s to reach a demanded decel (JERK_SERVICE_BRAKE_MS3),
+    // so a driver starts braking earlier — about half the build-up time at the current speed is lost
+    const lagM = vNow * 0.35;
+    const cons = (Lms, d0) => {
+      const d = d0 > 0 ? Math.max(0.01, d0 - lagM * (vNow > Lms ? 1 : 0)) : d0;
       vAllow = Math.min(vAllow, Math.sqrt(Lms * Lms + 2 * bPlan * Math.max(0, d)));
       if (vNow > Lms && d > 0.3) aReq = Math.max(aReq, (vNow * vNow - Lms * Lms) / (2 * d));
       else if (vNow > Lms + 0.2) aReq = Math.max(aReq, 9);
@@ -238,7 +242,7 @@ export function driveRun(M, W, cfg) {
       if (t >= dwellUntil) { P.doorsOpen = false; P.resetVigilance(); phase = 'run'; }
     } else if (phase === 'run') {
       const dStop = stopTarget - s;
-      if (vNow < 0.05 && dStop < 3) {
+      if (vNow < 1e-4 && dStop < 3) { // driver waits until the car has actually stopped (the jerk-limited stop reaches v = 0 exactly)
         // arrived
         P.powerNotch = 0; P.brakeNotch = 3;
         const st = stations[nextIdx];
@@ -291,7 +295,9 @@ export function driveRun(M, W, cfg) {
 
     if (process.env.TRACE_S0 && s > +process.env.TRACE_S0 && s < +process.env.TRACE_S1 && (Math.round(t / dt) % 10 === 0)) ev('tr', { pn: P.powerNotch, bn: P.brakeNotch, slip: P.wheelslip, sand: P.sanding, aReq: +aReq.toFixed(2), bPlan: +bPlan.toFixed(2), vAllow: +(vAllow * 3.6).toFixed(1), dStop: stopTarget != null ? +(stopTarget - s).toFixed(1) : null, mu: +P.adhesionAt(vNow).toFixed(3), g: +sample.grade.toFixed(3) });
     // ---- physics step (Game.loop order) ----
+    P.enforceSpeedLimit(limit); // Game.loop: ATP-style penalty brake above limit + 5 km/h
     const out = P.step(dt, sample.grade, sample.curvature);
+    if (P.overspeedPenalty) penaltyT += dt;
     if (phase === 'dwell' && Math.abs(P.speed) > 0) holdBrakeRoll = Math.max(holdBrakeRoll, Math.abs(P.speed));
     s = Math.max(sLo, Math.min(sHi, s + P.speed * dt));
     if (s <= sLo && P.speed < 0) P.speed = 0;
@@ -415,7 +421,7 @@ const fmt = (x, d = 1) => (Number.isFinite(x) ? x.toFixed(d) : String(x));
 export function resultsTable(results) {
   const hdr = '| Route | Dir | Weather | Vehicle | Length (m) | Run time | Moving | Avg km/h (moving) | Stops | Max stop err (m) | Max grade % | Slip events | Slip s | Min μ | Max over limit (km/h) | Red viol. | Rail–DEM med/p95 (m) | Result |';
   const sep = '|' + '---|'.repeat(18);
-  const mmss = (s) => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}`;
+  const mmss = (s) => { const r = Math.round(s); return `${Math.floor(r / 60)}:${String(r % 60).padStart(2, '0')}`; };
   const rows = results.map((r) => `| ${r.routeKey} | ${r.dir} | ${r.weather} | ${r.vehicle} | ${r.lengthM} | ${mmss(r.runtimeS)} | ${mmss(r.movingS)} | ${fmt(r.avgKmh)} | ${r.stops}/${r.stopsExpected} | ${fmt(r.maxStopErrM, 2)} | ${fmt(r.maxGradePct, 2)} | ${r.slipEvents} | ${fmt(r.slipS)} | ${fmt(r.minMu, 3)} | ${fmt(r.maxExcessKmh, 2)} | ${r.redViolations} | ${fmt(r.railMed, 2)}/${fmt(r.railP95, 2)} | ${r.problems.length ? 'FAIL: ' + r.problems.join('; ') : 'PASS'} |`);
   return [hdr, sep, ...rows].join('\n');
 }
