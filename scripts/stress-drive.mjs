@@ -204,7 +204,7 @@ export async function driveTests(assert, log = console.log) {
         let sb = sDn, slide = false, tt = 0;
         while (b.speed > 0 && tt < 300) {
           b.sanding = true;
-          b.brakeNotch = Math.max(1, Math.min(8, Math.floor((8 * 0.92 * b.adhesionAt(b.speed) * 9.81) / 1.15)));
+          b.brakeNotch = Math.max(1, Math.min(8, Math.floor((8 * 0.92 * b.adhesionDecel(b.speed)) / M.SERVICE_BRAKE_DECEL)));
           const smp = tr.sample(sb);
           b.step(0.05, smp.grade, smp.curvature);
           if (b.wheelslip) slide = true;

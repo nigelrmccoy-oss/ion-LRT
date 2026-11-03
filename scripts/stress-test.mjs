@@ -943,6 +943,8 @@ async function main() {
     await driveTests(assert);
     const { v143Tests } = await import('./stress-v143.mjs');
     await v143Tests(assert);
+    const { v144Tests } = await import('./stress-v144.mjs');
+    await v144Tests(assert);
   }
 
   const failed = results.filter((r) => !r.ok);

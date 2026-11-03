@@ -1,8 +1,19 @@
-# ION LRT Simulator **v1.4.3**
+# ION LRT Simulator **v1.4.4**
 
 Playable browser / Electron cab simulator of the Waterloo Region **ION LRT** (GrandLinq / Keolis / GRT tribute), plus the **CN Waterloo Spur / WCR to Elmira** and **Kitchener–Guelph** heavy-rail routes.
 
 Built with **Vite + TypeScript + Three.js**. No Blender/Unity. No backend.
+
+## What’s new in v1.4.4 (wheel–rail physics and terrain audit)
+
+Every constant below has a source comment in `src/game/Physics.ts`; the table with sources and the list of estimates is in [`docs/PHYSICS.md`](docs/PHYSICS.md).
+
+- **Creep-force curve instead of an on/off slip switch.** Traction and braking now follow a creep curve (linear rise, peak at the critical creep, falling branch to Polach's μ∞/μ0 = 0.40). Slip control holds the powered axles at 95 % of the peak (about 1.8 % creep on wet rail) and wheel-slide protection holds the brakes at 90 %. Without them the wheels run away down the falling branch and only recover once demand drops (hysteresis). `P.creepTraction()` / `creepBrake()` report the creep.
+- **Adhesion by rail condition**: dry 0.30, wet 0.15, snow 0.10 and a new wet-leaf 0.05 (`P.leafFall`), each with a speed fall-off from Curtius–Kniffler (dry and wet constants differ). Sand now reaches the rail with a 1 s delay and fades over 3 s, and raises μ to 0.35 / 0.25 / 0.18 / 0.12 (conservative against Skipper 2022 / Meierhofer lab peaks).
+- **Brakes**: full service is 1.26 m/s² (was an unsourced 1.15; Flexity Outlook data sheet, TCRP 13 about 1.3). A vigilance failure now applies the emergency brake: 2.73 m/s² total, friction at full service plus a magnetic track brake of 1.47 m/s² that does not depend on adhesion.
+- **Resistance**: Davis (1926) eq. 15 per vehicle (axles, flange term, frontal area 2.65 × 3.6 m) replaces the unsourced A/B/C. A 56 t Flexity now has about 5 kN at 80 km/h (was 4.1 kN). Accelerations include the 1.08 rotating-mass factor, which gives the Flexity family's 1.0 m/s² start. Grade force uses sin θ. Curve resistance (AREMA) is unchanged and cross-checked against Röckl.
+- **Terrain audit** (`node scripts/audit-terrain.mjs`): all four routes, both directions — max rail grade 4.91 %, vertical curves ≥ 560 m (Transit Toronto minimum 122 m crest / 244 m sag), forward and reverse profiles identical at the same ground point, rail within 7 m of SRTM. The 4.5 % design / 5 % cap stays below the 6 % ION design maximum (Stage 2 EPR Table 4-2) because 30 m SRTM cannot resolve the real 6 % pitches. Findings that remain are in `docs/PHYSICS.md`.
+- 89 new checks in `scripts/stress-v144.mjs` (adhesion, creep curve, slip recovery, braking distances, Davis cross-check, curve resistance, curve lateral acceleration, grade profiles on every route).
 
 ## What’s new in v1.4.3 (lights + Code Critic QA fixes on v1.4.2)
 
@@ -142,9 +153,9 @@ Internal model is SI (kg, m, s, N). Inspired by classic MSTS / Open Rails `.eng`
 | Mass (t) | `massKg` (Flexity tare 48200 + ~8000 pax) |
 | MaxPower / MaxForce | `maxTE()` — electric ~62 kN start, 320 kW @ 750 V; diesel ~178 kN / 1340 kW |
 | NumWheels / adhesive weight | `axleFrac` (Flexity Bo′2Bo′ = 4/6) |
-| Friction (Davis A/B/C) | `davisResistance()` N |
-| MaxBrakeForce | brake notch × ~1.15 m/s² × mass, adhesion-capped |
-| OreFriction / adhesion | `adhesionMu(weather, sanding)` |
+| Friction (Davis A/B/C) | `davisResistance()` N — Davis 1926 eq. 15, `DAVIS_FLEXITY` / `DAVIS_DIESEL` |
+| MaxBrakeForce | brake notch × 1.26 m/s² × effective mass (service), emergency 2.73 m/s² incl. track brake; adhesion-capped with WSP |
+| OreFriction / adhesion | `adhesionMu(condition, sandCover)` + creep curve (`creepForceFraction`) |
 | Pantograph / voltage | `pantographUp`, `lineVoltage` (TE=0 if down or &lt;500 V) |
 | DirControl / reverser | `reverser` -1 / 0 / 1 — **no TE in Neutral** |
 | Vigilance / deadman | `vigilanceTimer` / `deadmanOk` |
@@ -166,7 +177,8 @@ ION: articulated 5-module Flexity Freedom (30.8 m × 2.65 m × 3.6 m, Bo′2Bo�
 ## Tests & build
 
 ```bash
-npm test     # 214 headless checks incl. 24 end-to-end drive simulations (4 routes × 2 directions × dry/rain/snow) and the v1.4.3 checks (scripts/stress-v143.mjs)
+npm test     # 303 headless checks incl. 24 end-to-end drive simulations (4 routes × 2 directions × dry/rain/snow), the v1.4.3 checks (scripts/stress-v143.mjs) and the v1.4.4 physics/terrain checks (scripts/stress-v144.mjs)
+node scripts/audit-terrain.mjs   # grade / vertical-curve / DEM audit table
 node scripts/drive-sim.mjs --write   # drive sims only; writes docs/DRIVE-SIM-RESULTS.md
 npm run build
 node scripts/bake-ion-tracks.mjs   # re-bake ION SB/NB lines + OSM platforms (Overpass; raw response cached in scripts/raw/)

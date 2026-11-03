@@ -1,4 +1,6 @@
 export type Weather = 'dry' | 'rain' | 'snow';
+/** Rail-head condition: the weather, or a wet-leaf film (autumn) — see RAIL_MU. */
+export type RailCondition = Weather | 'leaf';
 
 export type PhysicsConfig = {
   massKg: number;
@@ -16,7 +18,15 @@ export const MASS_FLEXITY_KG = MASS_FLEXITY_TARE_KG + MASS_PAX_TYPICAL_KG;
 export const MASS_WCR_KG = 148000;
 /** CN/GO-ish short consist. */
 export const MASS_CN_KG = 160000;
-/** Bo'2Bo' = 4 powered of 6 axles. */
+/**
+ * Bo'2Bo' = 4 powered of 6 axles: 3 trucks, power trucks under the end modules A and E, an
+ * unpowered trailer truck under the centre module C (Bombardier FLEXITY Freedom brochure 2011;
+ * UIC Bo'2Bo'; Railway Gazette, Oct 2011). Adhesive weight for traction = powered axles only.
+ * The real axle-load split is NOT published; 4/6 assumes equal axle loads. Cross-check with the
+ * sim's own module layout (Clearances.ts; mass ∝ length, suspended modules B and D carried half
+ * by each neighbour): A truck 10.1 m + E truck 10.1 m of 30.8 m = 0.655, i.e. within 2 % of 4/6.
+ * ESTIMATE.
+ */
 export const AXLE_FRAC_FLEXITY = 4 / 6;
 /** Loco adhesive weight / consist (RS-18 on WCR). */
 export const AXLE_FRAC_WCR = 112000 / MASS_WCR_KG;
@@ -39,33 +49,184 @@ export type RowClass = keyof typeof SPEED_LIMITS_KMH;
 export const STANDSTILL_MS = 0.05;
 /** Hold brake engages below this speed when doors are open / traction interlocked (m/s ≈ 1 km/h). */
 export const HOLD_BRAKE_MS = 0.3;
-/** Hold-brake retarding capacity (m/s²) — holds the car on > 12 % grades. */
+/**
+ * Hold-brake retarding capacity (m/s²) — holds the car on > 12 % grades. ESTIMATE (no published
+ * Freedom parking-brake figure; Wikipedia/Bombardier give only "spring-applied park brake").
+ */
 export const HOLD_BRAKE_DECEL = 1.5;
 /** Flexity Freedom minimum horizontal curve radius (Bombardier spec / Stage 2 ION EPR Table 4-2). */
 export const MIN_CURVE_RADIUS_M = 25;
 /** Vigilance (deadman) timer only runs above this speed (m/s ≈ 1.8 km/h) — ESTIMATE. */
 export const VIGILANCE_MIN_SPEED_MS = 0.5;
 
+// ───────────────────────── brakes ─────────────────────────
+/**
+ * Full-service (B8) deceleration of the friction/regenerative brake on dry level rail, m/s².
+ * SOURCE: Bombardier FLEXITY Outlook (Innsbruck) data sheet, service braking 1.26 m/s²
+ * (sibling Flexity platform: no ION/Freedom figure is published — Bombardier's 2011 Freedom
+ * brochure lists only "regenerative + hydraulic disc + magnetic track brake"). Corroborated by
+ * TCRP Report 13 / typical LRV service braking ≈ 3.0 mphps = 1.3 m/s². v1.4.3 used an unsourced 1.15.
+ */
+export const SERVICE_BRAKE_DECEL = 1.26;
+/**
+ * Emergency braking total, m/s²: friction brake at full service plus the magnetic track brake.
+ * SOURCE: same Flexity Outlook data sheet, emergency braking 2.73 m/s² (sibling platform; the
+ * Freedom figure is not published). DART design criteria quote 4–6 mphps (1.8–2.7 m/s²) for LRVs.
+ */
+export const EMERGENCY_BRAKE_DECEL = 2.73;
+/** Magnetic track-brake share of the emergency rate (not adhesion-limited): 2.73 − 1.26. */
+export const TRACK_BRAKE_DECEL = EMERGENCY_BRAKE_DECEL - SERVICE_BRAKE_DECEL;
+/** Track brake needs motion to drag the magnets (m/s). ESTIMATE. */
+export const TRACK_BRAKE_MIN_SPEED_MS = 0.5;
+/**
+ * Rotating-mass factor: wheels, gears and motor rotors make the vehicle accelerate like
+ * 1.06–1.10 × its static mass for a complete train (J.-M. Allenbach, "Electric Traction —
+ * Base Principles", fig. 3.13). Mid value 1.08 (also gives 1.0 m/s² start accel at 56 t / 62 kN,
+ * matching the Flexity family's ≈ 1.0 m/s² acceleration figure). Applies to every force → a
+ * conversion, so braking rates above are true decelerations.
+ */
+export const ROTATING_MASS_FACTOR = 1.08;
+
+// ───────────────────────── wheel–rail adhesion ─────────────────────────
+/**
+ * Design peak adhesion μ at standstill by rail condition (clean steel-on-steel unless noted).
+ *  dry  0.30  Curtius–Kniffler dry μ(0)=7.5/44+0.161=0.33 (Curtius & Kniffler 1944 / Allenbach
+ *             fig. 3.15) derated ≈ 10 % for design (typical dry range 0.2–0.4; RSSB / Integrail).
+ *  rain 0.15  wet clean rail 0.10–0.20 (RSSB "Managing low adhesion"; Integrail slip/slide
+ *             glossary); GB braking design minimum 0.09 (RSSB) is reached at speed (below).
+ *  snow 0.10  snow / frost / ice film: ESTIMATE inside the 0.05–0.15 range quoted for
+ *             contaminated rail (no ION measurement exists).
+ *  leaf 0.05  wet-leaf film 0.015–0.05 (RDG, "Leaves on the line"/Ingenia 2019).
+ */
+export const RAIL_MU: Record<RailCondition, number> = { dry: 0.30, rain: 0.15, snow: 0.10, leaf: 0.05 };
+/**
+ * Peak μ with sand effectively covering the rail head (Skipper 2022, Univ. Sheffield PhD /
+ * Wear 2024: sanded peak adhesion dry 0.4–0.5, wet 0.3–0.4, leaf 0.1–0.2 in tests; Meierhofer
+ * measured 0.3–0.4 wet sanded). The values below are deliberately conservative fractions of
+ * those laboratory peaks (a moving train gets patchy cover) — ESTIMATES.
+ */
+export const SANDED_MU: Record<RailCondition, number> = { dry: 0.35, rain: 0.25, snow: 0.18, leaf: 0.12 };
+/** Sand takes time to reach and cover the rail head (s to full effect) and stays after a pass (s to fade). ESTIMATES. */
+export const SAND_RAMP_UP_S = 1.0;
+export const SAND_FADE_S = 3.0;
+
+/**
+ * Critical creep s_c (creep at peak adhesion) by condition. Order of magnitude from
+ * Polach 2005 (Wear 258) / Kalker: peak at ≈1–2 % creep on dry rail, shifting to larger creep
+ * on wet and contaminated rail. ESTIMATES (no ION data).
+ */
+export const CRITICAL_CREEP: Record<RailCondition, number> = { dry: 0.015, rain: 0.025, snow: 0.035, leaf: 0.04 };
+/**
+ * Large-slip friction ratio μ∞/μ0 (Polach 2005, "Creep forces in simulations of traction vehicles
+ * running on adhesion limit", Wear 258: A = 0.40 for dry and wet contact).
+ */
+export const POLACH_A = 0.40;
+/** Rate at which normalised creep runs away (or recovers) once past the adhesion peak, 1/s. ESTIMATE. */
+export const CREEP_RUNAWAY_RATE = 4;
+/** Upper bound of the normalised creep state (x = s/s_c). */
+const CREEP_X_MAX = 12;
+
+/**
+ * Quasi-static creep-force characteristic, force / peak force versus x = s / s_c:
+ * linear rise to the peak at x = 1 (2x/(1+x²), Kalker-like), then a falling branch towards
+ * the large-slip level POLACH_A. Continuous, peak = 1 at x = 1.
+ */
+export function creepForceFraction(x: number): number {
+  const u = Math.abs(x);
+  return u <= 1 ? (2 * u) / (1 + u * u) : POLACH_A + (1 - POLACH_A) * (2 / (1 + u * u));
+}
+/** Inverse on the stable (rising) branch: x for a force ratio r ∈ [0,1]. */
+export function creepFromForceFraction(r: number): number {
+  const q = Math.max(0, Math.min(1, r));
+  return q < 1e-9 ? 0 : (1 - Math.sqrt(1 - q * q)) / q;
+}
+
+/** Curtius–Kniffler speed shape, normalised to 1 at standstill (v in km/h). Dry: 7.5/(v+44)+0.161; wet/contaminated: …+0.130. */
+export function curtiusKnifflerFactor(speedKmh: number, condition: RailCondition = 'dry'): number {
+  const c = condition === 'dry' ? 0.161 : 0.130;
+  return (7.5 / (Math.abs(speedKmh) + 44) + c) / (7.5 / 44 + c);
+}
+
+/** Peak adhesion μ with sand cover 0…1 (boolean accepted: true = full cover). */
+export function adhesionMu(condition: RailCondition, sanding: boolean | number): number {
+  const cover = typeof sanding === 'number' ? Math.max(0, Math.min(1, sanding)) : sanding ? 1 : 0;
+  const clean = RAIL_MU[condition];
+  return clean + (Math.max(clean, SANDED_MU[condition]) - clean) * cover;
+}
+
 /**
  * Wheel-slip control (traction) — ESTIMATES. The Flexity's traction control is creep-
- * controlled: on slip the inverter cuts tractive effort back to the adhesion limit and keeps
- * it there instead of collapsing it (v1.4.2 cut TE to 35 % on every slip, so a P7 start on
- * the 4.9 % wet King St grade stalled with ~70 % slip). Fraction of the momentary adhesion
- * limit that the controller holds while slipping: modern IGBT drive vs older diesel relays.
+ * controlled: on slip the inverter holds the tractive effort just below the adhesion peak
+ * (on the rising branch of the creep curve) instead of letting it fall. Fraction of the peak
+ * that the controller holds: modern IGBT drive vs older diesel relays.
  */
 export const SLIP_CONTROL_TE_FRAC_ELECTRIC = 0.95;
 export const SLIP_CONTROL_TE_FRAC_DIESEL = 0.85;
-/** Wheel-slide protection (brakes): fraction of the adhesion limit held while sliding. */
+/** Wheel-slide protection (brakes): fraction of the adhesion peak held while sliding. ESTIMATE. */
 export const SLIDE_CONTROL_BRAKE_FRAC = 0.9;
-/** Without slip control (slipControl = false): TE / brake force collapse to this fraction. */
-export const UNCONTROLLED_SLIP_FRAC = 0.35;
+/**
+ * Large-slip force ratio without slip control / WSP (slipControl = false): once past the peak
+ * the force falls along creepForceFraction towards this level (Polach 2005 A = 0.40).
+ */
+export const UNCONTROLLED_SLIP_FRAC = POLACH_A;
 /** Automatic sanding keeps sanding this long after the last detected slip/slide (s). */
 export const AUTO_SAND_HOLD_S = 3;
 
-export function adhesionMu(weather: Weather, sanding: boolean): number {
-  let mu = weather === 'dry' ? 0.30 : weather === 'rain' ? 0.15 : 0.10;
-  if (sanding) mu = Math.min(0.35, mu + 0.08);
-  return mu;
+// ───────────────────────── running resistance ─────────────────────────
+const LBF_N = 4.44822;
+const SHORT_TON_T = 0.907185; // tonne per short ton
+const MPH_PER_MS = 2.23694;
+const FT2_PER_M2 = 10.7639;
+/** 1 lb per short ton in N per tonne. */
+const N_PER_T_PER_LB_TON = LBF_N / SHORT_TON_T;
+
+/**
+ * Davis (1926), "The Tractive Resistance of Electric Locomotives and Cars", Gen. Electric Review
+ * Oct 1926, eq. (15) for light interurban / street-railway cars (lb per short ton, V mph):
+ *     R = 1.3 + 29/w + b·V + C·A·V² / (w·n)
+ * w = short tons per axle, n = axles, A = frontal area ft². Table II flange term b: motor cars in
+ * trains 0.045, operated singly 0.09, locomotives 0.03; air coefficient C: 0.0024 for the leading
+ * vehicle, 0.00034 for trailing cars in multiple-unit trains.
+ */
+export type DavisVehicle = { axles: number; flangeB: number; airNPerMs2: number };
+const airN = (C: number, areaM2: number) => C * areaM2 * FT2_PER_M2 * LBF_N * MPH_PER_MS * MPH_PER_MS;
+/**
+ * Flexity Freedom: 6 axles; one articulated unit "operated singly" → b = 0.09; C = 0.0024; frontal
+ * area 2.65 m × 3.6 m = 9.54 m² (Bombardier brochure width × height; a slight over-estimate of the
+ * silhouette, Davis's typical A for 55 t+ cars is 115 ft² = 10.7 m²).
+ */
+export const DAVIS_FLEXITY: DavisVehicle = { axles: 6, flangeB: 0.09, airNPerMs2: airN(0.0024, 2.65 * 3.6) };
+/**
+ * Diesel loco + one coach (RS-18 + coach): 8 axles, b = 0.045 (motor car/locomotive in a train),
+ * air 0.0024 on the loco's front (≈ 3.1 × 4.1 m, ESTIMATE) plus 0.00034 on the trailing coach
+ * (≈ 3.0 × 3.8 m, ESTIMATE).
+ */
+export const DAVIS_DIESEL: DavisVehicle = { axles: 8, flangeB: 0.045, airNPerMs2: airN(0.0024, 3.1 * 4.1) + airN(0.00034, 3.0 * 3.8) };
+
+/** Davis running resistance (N) for a vehicle of massKg at speed v (m/s). */
+export function davisResistanceN(massKg: number, speedMs: number, veh: DavisVehicle): number {
+  const v = Math.abs(speedMs);
+  const tonnes = massKg / 1000;
+  const wShortTonsPerAxle = (tonnes / SHORT_TON_T) / veh.axles;
+  const lbPerTon = 1.3 + 29 / wShortTonsPerAxle + veh.flangeB * v * MPH_PER_MS;
+  return lbPerTon * N_PER_T_PER_LB_TON * tonnes + veh.airNPerMs2 * v * v;
+}
+
+/**
+ * Curve resistance in N/kN of weight on radius R (m). AREMA: 0.8 lb per short ton per degree of
+ * curve = 0.4 N/kN per degree, degree of curve D = 1746.4 / R (100-ft chord). Cross-check vs the
+ * Röckl formula (500/(R−30) N/kN for R < 300 m): R=100 m → 7.0 vs 7.1; R=200 m → 3.5 vs 2.9.
+ * Below R ≈ 50 m both are extrapolations (Röckl diverges at 30 m); the Flexity minimum is 25 m.
+ * ESTIMATE in that range — no tram-specific tight-curve figure was found.
+ */
+export function curveResistanceNPerKn(radiusM: number): number {
+  if (!Number.isFinite(radiusM) || radiusM <= 0) return 0;
+  const R = Math.max(MIN_CURVE_RADIUS_M, radiusM);
+  return 0.4 * (1746.4 / R);
+}
+/** Röckl curve resistance (N/kN), R < 300 m branch — used only as a cross-check in the tests. */
+export function rocklCurveResistanceNPerKn(radiusM: number): number {
+  return radiusM < 300 ? 500 / (radiusM - 30) : 650 / (radiusM - 55);
 }
 
 /**
@@ -87,9 +248,13 @@ export function civilSpeedLimitKmh(
 }
 
 /**
- * Curve equilibrium + unbalance budget for the curve-speed formula (mm). TCRP Report 155
- * (Track Design Handbook for LRT, 2nd ed., §3.2.4/3.2.6) recommends Ea + Eu of 3–4.5 in
- * (76–114 mm) for light rail; the sim uses the upper 114 mm.
+ * Curve equilibrium + unbalance budget for the curve-speed formula (mm). TCRP Report 57
+ * (Track Design Handbook for LRT, 2000) §3.2.5.2: actual superelevation Ea 100 mm desired /
+ * 150 mm absolute, unbalanced superelevation Eu 75 mm (3 in) desired / 115 mm (4.5 in)
+ * absolute, "equates to the 0.1 g limit that passengers can tolerate comfortably" (§2.4.6.2).
+ * The sim posts the absolute limit (114 mm, Ea + Eu with the street track's Ea ≈ 0), i.e.
+ * lateral acceleration g·Eu/1500 = 0.75 m/s² = 0.076 g < 0.1 g. The TCRP 155 curve-speed formula
+ * below is the same equation.
  */
 export const CURVE_EQ_BUDGET_MM = 114;
 /** Lowest posted curve restriction (km/h). */
@@ -108,6 +273,11 @@ export function curveSpeedLimitKmh(radiusM: number, budgetMm = CURVE_EQ_BUDGET_M
   return Math.max(CURVE_LIMIT_MIN_KMH, q);
 }
 
+/** Lateral (unbalanced) acceleration in m/s² at speed v (m/s) on radius R with the given Ea (m). */
+export function lateralAccel(speedMs: number, radiusM: number, actualCantM = 0, railCentresM = 1.5): number {
+  return (speedMs * speedMs) / Math.max(MIN_CURVE_RADIUS_M, radiusM) - 9.81 * (actualCantM / railCentresM);
+}
+
 export function isOverspeed(speedKmh: number, limitKmh: number, margin = 2): boolean {
   return speedKmh > limitKmh + margin;
 }
@@ -122,12 +292,16 @@ export class TrainPhysics {
   brakeNotch = 0; // 0..8
   reverser: -1 | 0 | 1 = 0;
   sanding = false;
+  /** Wet-leaf film on the rail (autumn). Overrides rain; snow/ice keeps its own condition. */
+  leafFall = false;
   pantographUp = true;
   doorsOpen = false;
   wheelslip = false;
   lineVoltage = 750;
   vigilanceTimer = 45;
   deadmanOk = true;
+  /** Emergency brake (friction at full service + magnetic track brake). Applied by a vigilance failure. */
+  emergencyBrake = false;
   /**
    * Automatic hold brake (standstill brake). Real LRVs apply it at standstill and keep it
    * until tractive effort can overcome gravity in the selected direction. Also forced
@@ -141,6 +315,11 @@ export class TrainPhysics {
   autoSand = true;
   /** Seconds of automatic sanding left (re-armed while slipping). */
   autoSandTimer = 0;
+  /** Sand cover on the rail head 0…1 (ramps up while sanding, fades afterwards). */
+  sandCover = 0;
+  /** Normalised creep x = s/s_c of the powered axles (traction) and of all axles (braking). > 1 = past the adhesion peak. */
+  creepXTraction = 0;
+  creepXBrake = 0;
 
   axleFrac: number;
 
@@ -157,20 +336,34 @@ export class TrainPhysics {
     return this.electric ? VMAX_ELECTRIC_MS : VMAX_DIESEL_MS;
   }
 
+  /** Effective (inertial) mass incl. rotating parts, kg. */
+  effMassKg() { return this.massKg * ROTATING_MASS_FACTOR; }
+
   /** Sand reaching the rail: manual (Shift) or automatic after a slip. */
   sandActive() {
     return this.sanding || (this.autoSand && this.autoSandTimer > 0);
   }
 
-  baseMu() {
-    return adhesionMu(this.weather, this.sandActive());
+  /** Current rail-head condition (weather, or wet leaves when leafFall and not snowing). */
+  railCondition(): RailCondition {
+    return this.leafFall && this.weather !== 'snow' ? 'leaf' : this.weather;
   }
+
+  baseMu() {
+    return adhesionMu(this.railCondition(), this.sandCover);
+  }
+
+  /** Creep (fraction, e.g. 0.012 = 1.2 %) of the powered axles. */
+  creepTraction() { return this.creepXTraction * CRITICAL_CREEP[this.railCondition()]; }
+  creepBrake() { return this.creepXBrake * CRITICAL_CREEP[this.railCondition()]; }
 
   /** Max traction effort N vs speed (simplified Flexity / diesel curve). */
   maxTE(speedMs: number) {
     if (this.electric) {
       if (!this.pantographUp || this.lineVoltage < 500) return 0;
-      // 4 × ~80 kW asynchronous motors, ~62 kN start (~1.1 m/s² at tare)
+      // ESTIMATE: Bombardier publishes no motor/TE figure for the Freedom. 4 × ~80 kW
+      // asynchronous motors, ~62 kN start (≈ 1.0 m/s² at 56 t with the rotating-mass factor,
+      // the Flexity-family acceleration figure)
       const te0 = 62000;
       const pMax = 320000 * (this.lineVoltage / 750);
       if (speedMs < 1) return te0;
@@ -183,23 +376,18 @@ export class TrainPhysics {
     return Math.min(te0, pMax / speedMs);
   }
 
+  /** Davis (1926) eq. 15 running resistance, N — see DAVIS_FLEXITY / DAVIS_DIESEL. */
   davisResistance(speedMs: number) {
-    // Davis: A + Bv + Cv^2  (N), tuned for ~50 t LRV
-    const v = Math.abs(speedMs);
-    const t = this.massKg / 1000;
-    const A = 20 * t;           // ~20 N per tonne rolling
-    const B = 0.35 * t;
-    const C = this.electric ? 5.2 : 8.5;
-    return A + B * v + C * v * v;
+    return davisResistanceN(this.massKg, speedMs, this.electric ? DAVIS_FLEXITY : DAVIS_DIESEL);
   }
 
+  /** Grade force N (+ uphill). `grade` = rise/run; the along-track component is g·grade/√(1+grade²). */
   gradeForce(grade: number) {
-    return this.massKg * 9.81 * grade;
+    return this.massKg * 9.81 * (grade / Math.sqrt(1 + grade * grade));
   }
 
   /**
-   * Curve resistance (N). AREMA-style 0.8 lb/short-ton per degree of curve
-   * (≈0.4 N/kN per degree, chord-100 ft definition D = 1746.4 / R[m]).
+   * Curve resistance (N): AREMA 0.4 N/kN per degree (see curveResistanceNPerKn).
    * v1.3 used `mass·g·(600/R)·0.05`, which was ~40× too large (165 kN at R=100 m,
    * 331 kN at R≤50 m — far above the 62 kN starting TE) and stalled the LRV on any
    * densified-polyline kink (e.g. near Northfield / Block Line).
@@ -207,17 +395,17 @@ export class TrainPhysics {
   curveResistance(curvature: number) {
     const k = Math.abs(curvature);
     if (!Number.isFinite(k) || k < 1e-5) return 0;
-    const R = Math.max(MIN_CURVE_RADIUS_M, 1 / k);
-    const degrees = 1746.4 / R;
-    const nPerKn = 0.4 * degrees;
-    return (this.massKg * 9.81 / 1000) * nPerKn;
+    return (this.massKg * 9.81 / 1000) * curveResistanceNPerKn(1 / k);
   }
 
   /** Speed-dependent available adhesion (Curtius–Kniffler shape, normalised to 1 at standstill). */
   adhesionAt(speedMs: number) {
-    const vk = Math.abs(speedMs) * 3.6;
-    const ck = (7.5 / (vk + 44) + 0.161) / (7.5 / 44 + 0.161);
-    return this.baseMu() * ck;
+    return this.baseMu() * curtiusKnifflerFactor(Math.abs(speedMs) * 3.6, this.railCondition());
+  }
+
+  /** Highest braking deceleration (m/s², vs inertial mass) the rail can give at this speed on the flat. */
+  adhesionDecel(speedMs: number) {
+    return (this.adhesionAt(speedMs) * 9.81) / ROTATING_MASS_FACTOR;
   }
 
   step(dt: number, grade: number, curvature: number) {
@@ -225,31 +413,54 @@ export class TrainPhysics {
     if (!Number.isFinite(grade)) grade = 0;
     if (!Number.isFinite(curvature)) curvature = 0;
 
+    // Sand reaches the rail with a delay and leaves a film behind
+    this.sandCover = this.sandActive()
+      ? Math.min(1, this.sandCover + dt / SAND_RAMP_UP_S)
+      : Math.max(0, this.sandCover - dt / SAND_FADE_S);
+
     // Doors interlock / reverser / vigilance
     const canPower = !this.doorsOpen && this.reverser !== 0 && this.deadmanOk;
     const notchP = canPower ? this.powerNotch : 0;
     const demandTE = (notchP / 8) * this.maxTE(Math.abs(this.speed));
+    const mEff = this.effMassKg();
     // Powered-axle adhesion weight (not full consist mass), normal force on grade
-    const axleLoad = this.massKg * 9.81 * this.axleFrac * Math.cos(Math.atan(grade));
-    const maxAdhesion = this.adhesionAt(this.speed) * axleLoad;
+    const axleLoad = this.massKg * 9.81 * this.axleFrac / Math.sqrt(1 + grade * grade);
+    const peakT = this.adhesionAt(this.speed) * axleLoad;
 
-    // Brakes: blended regen + friction, up to ~1.15 m/s² — also limited by adhesion
-    // (brake adhesion uses all axles: friction brakes on the trailer truck too)
-    const demandBrake = (this.brakeNotch / 8) * this.massKg * 1.15;
-    const brakeAdhesion = this.adhesionAt(this.speed) * this.massKg * 9.81;
+    // Brakes: blended regen + friction at SERVICE_BRAKE_DECEL (B8), limited by adhesion
+    // (brake adhesion uses all axles: friction brakes on the trailer truck too); the emergency
+    // brake adds the magnetic track brake, which does not depend on wheel–rail adhesion.
+    const frictionNotch = this.emergencyBrake ? 8 : this.brakeNotch;
+    const demandBrake = (frictionNotch / 8) * mEff * SERVICE_BRAKE_DECEL;
+    const peakB = this.adhesionAt(this.speed) * this.massKg * 9.81;
 
-    const teSlip = notchP > 0 && demandTE > maxAdhesion;
-    const brakeSlip = this.brakeNotch > 0 && Math.abs(this.speed) > 0.05 && demandBrake > brakeAdhesion;
+    const teSlip = notchP > 0 && demandTE > peakT;
+    const brakeSlip = frictionNotch > 0 && Math.abs(this.speed) > 0.05 && demandBrake > peakB;
     this.wheelslip = teSlip || brakeSlip;
 
-    // Slip: with creep control TE is held just under the adhesion limit; without it the
-    // slipping axles lose most of their grip (old behaviour, slipControl = false)
+    // Creep-force curve: held on the rising branch (slip control / WSP), or — without it —
+    // sliding past the peak down the falling branch until demand drops below the available force.
     const teFrac = this.electric ? SLIP_CONTROL_TE_FRAC_ELECTRIC : SLIP_CONTROL_TE_FRAC_DIESEL;
-    let te = Math.min(demandTE, maxAdhesion);
-    if (teSlip) te = this.slipControl ? maxAdhesion * teFrac : te * UNCONTROLLED_SLIP_FRAC;
+    let te = 0;
+    if (notchP <= 0 || peakT <= 0) { this.creepXTraction = 0; }
+    else if (this.slipControl) {
+      te = Math.min(demandTE, teFrac * peakT);
+      this.creepXTraction = creepFromForceFraction(te / peakT);
+    } else {
+      [te, this.creepXTraction] = this.creepLimited(demandTE, peakT, this.creepXTraction, dt);
+    }
 
-    let Fbrake = Math.min(demandBrake, brakeAdhesion);
-    if (brakeSlip) Fbrake = this.slipControl ? brakeAdhesion * SLIDE_CONTROL_BRAKE_FRAC : Fbrake * UNCONTROLLED_SLIP_FRAC;
+    let Fbrake = 0;
+    if (frictionNotch <= 0 || Math.abs(this.speed) <= 0.05) {
+      Fbrake = Math.min(demandBrake, peakB);
+      this.creepXBrake = 0;
+    } else if (this.slipControl) {
+      Fbrake = Math.min(demandBrake, SLIDE_CONTROL_BRAKE_FRAC * peakB);
+      this.creepXBrake = creepFromForceFraction(Fbrake / peakB);
+    } else {
+      [Fbrake, this.creepXBrake] = this.creepLimited(demandBrake, peakB, this.creepXBrake, dt);
+    }
+    if (this.emergencyBrake && Math.abs(this.speed) > TRACK_BRAKE_MIN_SPEED_MS) Fbrake += mEff * TRACK_BRAKE_DECEL;
 
     // Automatic sanding: armed by any slip/slide, sands for AUTO_SAND_HOLD_S afterwards
     if (this.autoSand && this.wheelslip) this.autoSandTimer = AUTO_SAND_HOLD_S;
@@ -282,13 +493,13 @@ export class TrainPhysics {
         this.speed = 0;
         a = 0;
       } else {
-        a = (applied - Math.sign(applied) * holding) / this.massKg;
+        a = (applied - Math.sign(applied) * holding) / mEff;
         this.speed += a * dt;
       }
     } else {
       const sv = Math.sign(this.speed);
       const F = dir * te - sv * (Fbrake + resist) - Fgrade;
-      a = F / this.massKg;
+      a = F / mEff;
       const next = this.speed + a * dt;
       // Resistive forces may stop the car but not reverse it within one step
       if (Math.sign(next) !== sv && Math.abs(dir * te - Fgrade) <= Fbrake + resist) {
@@ -316,14 +527,36 @@ export class TrainPhysics {
     if (this.vigilanceTimer <= 0) {
       this.deadmanOk = false;
       this.brakeNotch = Math.max(this.brakeNotch, 8);
+      this.emergencyBrake = true; // vigilance penalty = emergency brake application
     }
 
-    return { te, a, resist, Fbrake, demandTE, demandBrake, maxAdhesion };
+    return { te, a, resist, Fbrake, demandTE, demandBrake, maxAdhesion: peakT, creepTraction: this.creepTraction(), creepBrake: this.creepBrake() };
+  }
+
+  /**
+   * One step of the uncontrolled creep state: returns [force, normalised creep]. Demand under the
+   * peak → stable point on the rising branch. Demand above the peak → creep runs away along the
+   * falling branch (force → POLACH_A × peak) until the demand falls below the force available at
+   * the present creep; then creep recovers to the stable branch (hysteresis).
+   */
+  private creepLimited(demand: number, peak: number, x: number, dt: number): [number, number] {
+    const r = demand / peak;
+    let nx = x;
+    if (r <= 1 && x <= 1) nx = creepFromForceFraction(r);
+    else {
+      nx = Math.max(x, 1);
+      nx += (r > creepForceFraction(nx) ? 1 : -1) * CREEP_RUNAWAY_RATE * dt;
+      nx = Math.max(0, Math.min(CREEP_X_MAX, nx));
+      if (nx <= 1 && r <= 1) nx = creepFromForceFraction(r);
+    }
+    const f = nx <= 1 && r <= 1 ? demand : Math.min(demand, peak * creepForceFraction(nx));
+    return [f, nx];
   }
 
   resetVigilance() {
     this.vigilanceTimer = 45;
     this.deadmanOk = true;
+    this.emergencyBrake = false;
   }
 
   speedKmh() { return Math.abs(this.speed) * 3.6; }
@@ -338,4 +571,3 @@ export class TrainPhysics {
     return null;
   }
 }
-

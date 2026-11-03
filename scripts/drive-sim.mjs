@@ -119,7 +119,6 @@ export function layoutStations(M, W, routeKey, track, otherTracks) {
   return out;
 }
 
-const ck = (v) => (7.5 / (Math.abs(v) * 3.6 + 44) + 0.161) / (7.5 / 44 + 0.161);
 
 /**
  * Drive one run. Returns a summary + per-run problems list (empty = all good).
@@ -159,7 +158,8 @@ export function driveRun(M, W, cfg) {
   let lastViol = 0;
   let amberDecision = { k: null, stop: false };
   const minLimitTime = (() => { let x = 0; for (let i = Math.ceil(s); i < Math.floor(sHi); i++) x += 1 / (lim[i] / 3.6); return x; })();
-  const maxBrakeNotch = (v) => Math.max(1, Math.min(8, Math.floor((8 * 0.92 * P.adhesionAt(v) * G) / 1.15)));
+  const SB = M.SERVICE_BRAKE_DECEL, ROT = M.ROTATING_MASS_FACTOR;
+  const maxBrakeNotch = (v) => Math.max(1, Math.min(8, Math.floor((8 * 0.92 * P.adhesionDecel(v)) / SB)));
   // first stop already served (start there)
   stops.push({ id: stations[0].id, start: true });
   const T_MAX = 6 * 3600;
@@ -191,7 +191,7 @@ export function driveRun(M, W, cfg) {
         // still be made with full service braking, else clear the intersection.
         const dLine = enforceDir > 0 ? ahead.s_ion - enforceS : enforceS - ahead.s_ion;
         const vv = Math.abs(v);
-        const bMax = Math.max(0.1, Math.min(1.15, 0.92 * P.adhesionAt(vv) * G) - G * Math.max(0, -sample.grade));
+        const bMax = Math.max(0.1, Math.min(SB, 0.92 * P.adhesionDecel(vv)) - (G * Math.max(0, -sample.grade)) / ROT);
         const canMake = (vv * vv) / (2 * bMax) <= dLine - 2;
         const soft = (vv * vv) / (2 * 0.6) <= dLine - 25;
         // decision at amber onset is kept until the aspect changes (no flip-flop when μ changes)
@@ -207,7 +207,7 @@ export function driveRun(M, W, cfg) {
     }
     // ---- driver ----
     const vNow = Math.abs(v);
-    const muB = Math.min(1.15, 0.92 * P.adhesionAt(vNow) * G);
+    const muB = Math.min(SB, 0.92 * P.adhesionDecel(vNow));
     let down = 0;
     const horizon = Math.min(1500, (vNow * vNow) / 0.3 + 80);
     for (let d = 0; d <= Math.min(horizon, 400); d += 10) down = Math.max(down, -grd[Math.min(N - 1, Math.round(s + d))]);
@@ -257,9 +257,9 @@ export function driveRun(M, W, cfg) {
         const finalStop = dStop < 0.5 || (Number.isFinite(sigStop) && sigStop < 0.5);
         const braking = finalStop || aReq > 0.55 * bPlan || vNow > vTarget + 0.4;
         if (braking) {
-          const resist = (P.davisResistance(vNow) + P.curveResistance(sample.curvature)) / P.massKg;
-          const need = Math.max(0.05, aReq - G * sample.grade - resist + 0.05);
-          let n = Math.ceil((8 * need) / 1.15);
+          const resist = (P.davisResistance(vNow) + P.curveResistance(sample.curvature)) / P.effMassKg();
+          const need = Math.max(0.05, aReq - (G * sample.grade) / ROT - resist + 0.05);
+          let n = Math.ceil((8 * need) / SB);
           if (finalStop) n = 8; // stopping brake at the mark (capped to the adhesion-safe notch below)
           P.powerNotch = 0;
           P.brakeNotch = Math.max(1, Math.min(maxBrakeNotch(vNow), n));
