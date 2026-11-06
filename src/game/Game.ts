@@ -374,14 +374,35 @@ export class Game {
   }
 
   private handleInput(_dt: number) {
+    // Xbox / standard-mapping pad: edges are queued as key codes; analog triggers suggest notches
+    this.input.pollGamepads();
     const edgeKeys = new Set(['KeyR', 'KeyT', 'KeyW', 'KeyS', 'ArrowUp', 'ArrowDown', 'Enter', 'Space', 'KeyP', 'KeyC', 'KeyH', 'KeyV']);
     // every press in arrival order (queue) — none lost at low frame rates
     for (const code of this.input.drainEdges()) {
       if (!edgeKeys.has(code)) continue;
+      // keyboard (or D-pad) notch keys reclaim authority from the analog triggers
+      if (code === 'KeyW' || code === 'KeyS' || code === 'ArrowUp' || code === 'ArrowDown') {
+        this.input.noteKeyboardNotch();
+      }
       this.tutorial.onKey(code);
       this.handleCabKey(code);
     }
-    this.physics.sanding = this.input.pressed('ShiftLeft') || this.input.pressed('ShiftRight');
+    // Analog RT/LT drive notches only while past the deadzone (set this frame by pollGamepads)
+    if (this.input.padPowerNotch !== null || this.input.padBrakeNotch !== null) {
+      if (this.input.padBrakeNotch !== null && this.input.padBrakeNotch > 0) {
+        this.physics.powerNotch = 0;
+        this.physics.brakeNotch = this.input.padBrakeNotch;
+      } else if (this.input.padPowerNotch !== null) {
+        if (!this.physics.powerBlockedReason()) {
+          this.physics.brakeNotch = 0;
+          this.physics.powerNotch = this.input.padPowerNotch;
+          if (this.physics.reverser === 1) this.dwellUntil = 0;
+        }
+        this.physics.resetVigilance();
+        this.audio.ensure();
+      }
+    }
+    this.physics.sanding = this.input.pressed('ShiftLeft') || this.input.pressed('ShiftRight') || this.input.padSanding;
     this.input.consumeLook();
   }
 

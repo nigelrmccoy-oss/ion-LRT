@@ -1,8 +1,15 @@
-# ION LRT Simulator **v1.4.6**
+# ION LRT Simulator **v1.4.7**
 
 Playable browser / Electron cab simulator of the Waterloo Region **ION LRT** (GrandLinq / Keolis / GRT tribute), plus the **CN Waterloo Spur / WCR to Elmira** and **Kitchener–Guelph** heavy-rail routes.
 
 Built with **Vite + TypeScript + Three.js**. No Blender/Unity. No backend.
+
+## What’s new in v1.4.7 (Xbox / gamepad + smoothed physics)
+
+- **Xbox controller / standard-mapping gamepad** via the Gamepad API (`navigator.getGamepads()`, `mapping === 'standard'`). Works with Xbox pads in Chromium/Electron and any other controller that exposes the standard layout — no special driver.
+- Analog **RT = power**, **LT = brake** (scaled onto the existing 0–8 notches). D-pad up/down steps notches like W/S. Keyboard keeps working: triggers only drive notches while past a 0.15 deadzone; releasing them does not yank notches back to zero, and the next W/S reclaim authority.
+- Buttons: A doors, X horn, B sand (hold), Y headlights, LB / D-pad left-right reverser, RB side camera, View pantograph, Menu/Start = Esc. Right stick = look.
+- Builds on **v1.4.5/v1.4.6 smoothed physics** (jerk limits, 400 kW, grade-continuous stop jerk). Headless checks in `scripts/stress-v147.mjs`.
 
 ## What’s new in v1.4.6 (Code Critic P1 on v1.4.5)
 
@@ -138,20 +145,22 @@ These work with `npm run dev`, e.g. `http://localhost:5173/?route=ion_northbound
 
 ## Controls
 
-| Key | Action |
-|-----|--------|
-| R | Reverser **N → F → R** |
-| W / ↑ | Power notch up |
-| S / ↓ | Brake notch up |
-| T | Doors (only when stopped; open on the platform side; hold brake applied while open) |
-| Space | Horn |
-| Shift | Sand by hand (automatic sanding also runs on wheelslip) |
-| H | Headlights / train lights on or off (automatically on at dusk and night) |
-| V | Side camera: auto (platform side) / left / right |
-| P | Pantograph (ION only) |
-| C | Camera: cab / chase / trackside |
-| Esc | Release mouse, then menu |
-| Mouse | Look (click canvas to capture) |
+| Key | Xbox / standard pad | Action |
+|-----|---------------------|--------|
+| R | LB or D-pad ←/→ | Reverser **N → F → R** |
+| W / ↑ | D-pad ↑ · **RT** (analog) | Power notch up / analog power |
+| S / ↓ | D-pad ↓ · **LT** (analog) | Brake notch up / analog brake |
+| T | A | Doors (only when stopped; open on the platform side; hold brake applied while open) |
+| Space | X (hold) | Horn |
+| Shift | B (hold) | Sand by hand (automatic sanding also runs on wheelslip) |
+| H | Y | Headlights / train lights on or off (automatically on at dusk and night) |
+| V | RB | Side camera: auto (platform side) / left / right |
+| P | View / Back | Pantograph (ION only) |
+| C | — | Camera: cab / chase / trackside |
+| Esc | Menu / Start | Release mouse, then menu |
+| Mouse | Right stick | Look (click canvas to capture) |
+
+Analog triggers use a 0.15 deadzone and only drive notches while past it (brake wins if both are pulled). Releasing a trigger does not zero the notches; the next W/S (or D-pad) takes over from the pad. Keyboard and mouse always keep working.
 
 **Depart:** R until HUD shows **F**, doors closed, W to notch power. HUD shows why power is blocked if stuck.
 
@@ -195,7 +204,7 @@ ION: articulated 5-module Flexity Freedom (30.8 m × 2.65 m × 3.6 m, Bo′2Bo�
 ## Tests & build
 
 ```bash
-npm test     # 359 headless checks incl. 24 end-to-end drive simulations (4 routes × 2 directions × dry/rain/snow), the v1.4.3 checks (scripts/stress-v143.mjs) the v1.4.4 physics/terrain checks (scripts/stress-v144.mjs) the v1.4.5 checks (scripts/stress-v145.mjs) and the v1.4.6 grade-jerk checks (scripts/stress-v146.mjs)
+npm test     # 399 headless checks incl. 24 end-to-end drive simulations (4 routes × 2 directions × dry/rain/snow), the v1.4.3 checks (scripts/stress-v143.mjs) the v1.4.4 physics/terrain checks (scripts/stress-v144.mjs) the v1.4.5 checks (scripts/stress-v145.mjs) and the v1.4.6 grade-jerk checks (scripts/stress-v146.mjs)
 node scripts/audit-terrain.mjs   # grade / vertical-curve / DEM audit table
 node scripts/drive-sim.mjs --write   # drive sims only; writes docs/DRIVE-SIM-RESULTS.md
 npm run build

@@ -12,12 +12,12 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
   {
     id: 'look',
     title: 'Look around',
-    body: 'Click the canvas to capture the mouse. Move the mouse to look. Esc releases the pointer (Esc again opens the menu).',
+    body: 'Click the canvas to capture the mouse, or use the right stick on an Xbox / standard gamepad. Esc (or the Menu/Start button) releases the pointer (again opens the menu).',
   },
   {
     id: 'reverser',
     title: 'Set reverser Forward',
-    body: 'Press R until the HUD shows F (Neutral → Forward → Reverse). Power will not apply in Neutral.',
+    body: 'Press R (or LB / D-pad ←→ on a gamepad) until the HUD shows F (Neutral → Forward → Reverse). Power will not apply in Neutral.',
     expectCode: 'KeyR',
   },
   {
@@ -29,13 +29,13 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
   {
     id: 'power',
     title: 'Notch up power',
-    body: 'Press W (or ↑) to raise power notches. S / ↓ applies brake. Hold Shift to sand if wheelslip.',
+    body: 'Press W (or ↑ / D-pad ↑) to raise power notches, or pull the right trigger. S / ↓ / D-pad ↓ / left trigger applies brake. Hold Shift or B to sand if wheelslip.',
     expectCode: 'KeyW',
   },
   {
     id: 'done',
     title: 'Ready to roll',
-    body: 'Pantograph stays up for ION (P toggles). Space = horn. C = camera (V = side camera auto / left / right). H = headlights on/off — they switch on automatically at dusk and night. Wheel-slip control and automatic sanding are on; Shift still sands by hand. Use the minimap for next station / ETA.',
+    body: 'Pantograph stays up for ION (P or View toggles). Space / X = horn. C = camera (V / RB = side camera). H / Y = headlights — they switch on automatically at dusk and night. Wheel-slip control and automatic sanding are on; Shift / B still sands by hand. Use the minimap for next station / ETA.',
   },
 ];
 

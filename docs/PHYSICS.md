@@ -1,4 +1,4 @@
-# ION LRT Sim — wheel–rail physics and terrain (v1.4.6)
+# ION LRT Sim — wheel–rail physics and terrain (v1.4.7)
 
 All constants live in [`src/game/Physics.ts`](../src/game/Physics.ts) (vehicle/rail) and [`src/game/Track.ts`](../src/game/Track.ts) (profile). Status key as in [CLEARANCES.md](CLEARANCES.md): **Sourced** = read in the cited document, **Sibling** = published for another Flexity model, **ESTIMATE** = no public source; reasonable engineering value.
 
@@ -46,7 +46,7 @@ No ION/Freedom braking rate was found in any public document; the three rates ab
 
 ## Grade-continuous stop jerk (v1.4.6)
 
-v1.4.5’s moving-branch taper used `gradeHold = max(0, −sv·Fgrade)`, so on an **uphill** stop the grade force was applied on top of the jerk-limited `aCap` while the static branch (`|v| < STANDSTILL_MS`) followed the pure profile. Crossing the boundary dropped `|a|` by `g·sinθ` in one frame (Code Critic: 22.98 m/s³ service / 28.73 emergency on 4.5 % at dt = 0.02). Both branches now share one grade-aware profile: desired decel `aCap`, clamped by the physical ceiling with grade included, floor 0 so the ease-to-rest matches the flat-track comfort curve. Flat-track stops and the claimed limits (traction 1.34 / service 1.2 / emergency 5 m/s³) are unchanged.
+v1.4.5’s moving-branch taper used `gradeHold = max(0, −sv·Fgrade)`, so on an **uphill** stop the grade force was applied on top of the jerk-limited `aCap` while the static branch (`|v| < STANDSTILL_MS`) followed the pure profile. Crossing the boundary dropped `|a|` by `g·sinθ` in one frame (Code Critic: 22.98 m/s³ service / 28.73 emergency on 4.5 % at dt = 0.02). Both branches now share one grade-aware profile: desired decel `aCap`, clamped by the physical ceiling with grade included, floor 0 so the ease-to-rest matches the flat-track comfort curve. Flat-track stops and the claimed limits (traction 1.34 / service 1.2 / emergency 5 m/s³) are unchanged. The jerk limits apply when the brakes control the stop; on a steep uphill the last centimetres ease off slightly for comfort (floor 0) rather than holding a hard `g·sinθ` into the bumper.
 
 ## Speed limits and overspeed supervision (v1.4.5)
 
