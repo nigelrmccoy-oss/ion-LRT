@@ -1,8 +1,12 @@
-# ION LRT Simulator **v1.4.5**
+# ION LRT Simulator **v1.4.6**
 
 Playable browser / Electron cab simulator of the Waterloo Region **ION LRT** (GrandLinq / Keolis / GRT tribute), plus the **CN Waterloo Spur / WCR to Elmira** and **Kitchener–Guelph** heavy-rail routes.
 
 Built with **Vite + TypeScript + Three.js**. No Blender/Unity. No backend.
+
+## What’s new in v1.4.6 (Code Critic P1 on v1.4.5)
+
+- **Uphill-stop jerk.** v1.4.5’s moving-branch brake taper ignored grade on an uphill stop (`gradeHold = max(0, −sv·Fgrade)` is 0 when grade helps), so measured |a| was `aCap + g·sinθ` above `STANDSTILL_MS` and `aCap` below it — a jump of `g·sinθ` in one frame (Code Critic: 22.98 m/s³ service / 28.73 emergency on 4.5 % at dt = 0.02; 6.08 / 10.26 on 1 %). Both branches now share one grade-aware jerk-limited stop profile. Flat stops unchanged (~154 m service / ~73 m emergency from 70). New checks in `scripts/stress-v146.mjs`.
 
 ## What’s new in v1.4.5 (Code Critic fixes on v1.4.4)
 
@@ -191,7 +195,7 @@ ION: articulated 5-module Flexity Freedom (30.8 m × 2.65 m × 3.6 m, Bo′2Bo�
 ## Tests & build
 
 ```bash
-npm test     # 353 headless checks incl. 24 end-to-end drive simulations (4 routes × 2 directions × dry/rain/snow), the v1.4.3 checks (scripts/stress-v143.mjs) the v1.4.4 physics/terrain checks (scripts/stress-v144.mjs) and the v1.4.5 checks (scripts/stress-v145.mjs)
+npm test     # 359 headless checks incl. 24 end-to-end drive simulations (4 routes × 2 directions × dry/rain/snow), the v1.4.3 checks (scripts/stress-v143.mjs) the v1.4.4 physics/terrain checks (scripts/stress-v144.mjs) the v1.4.5 checks (scripts/stress-v145.mjs) and the v1.4.6 grade-jerk checks (scripts/stress-v146.mjs)
 node scripts/audit-terrain.mjs   # grade / vertical-curve / DEM audit table
 node scripts/drive-sim.mjs --write   # drive sims only; writes docs/DRIVE-SIM-RESULTS.md
 npm run build

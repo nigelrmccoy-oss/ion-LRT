@@ -65,6 +65,19 @@ function hillStart(weather, leaf, sand = true) {
 }
 
 /** Signal-hold style step: brake notch 0 → 6 at 70 km/h; report the largest decel step per frame. */
+/** Stop from 70 km/h on a constant grade; report max |Δa|/dt (the Code Critic metric). */
+function stopOnGrade(grade, kind, dt = DT) {
+  const p = mk('dry'); p.speed = 70 / KMH; p.brakeNotch = 8;
+  if (kind === 'emergency') p.emergencyBrake = true;
+  let t = 0, s = 0, prevA = null, jerkMax = 0;
+  while (t < 120 && Math.abs(p.speed) > 1e-6) {
+    const v0 = p.speed; const r = p.step(dt, grade, 0); t += dt; s += (v0 + p.speed) / 2 * dt;
+    if (prevA !== null) jerkMax = Math.max(jerkMax, Math.abs(r.a - prevA) / dt);
+    prevA = r.a;
+  }
+  return { dist: s, time: t, maxJerk: jerkMax };
+}
+
 function notchStep() {
   const p = mk('dry'); p.speed = 70 / KMH; p.brakeNotch = 0; let vp = p.speed; p.step(DT, 0, 0);
   let prev = (p.speed - vp) / DT; vp = p.speed;
@@ -74,12 +87,24 @@ function notchStep() {
 }
 
 export function measure() {
+  const grades = [0, 0.01, 0.045, -0.01, -0.045];
+  const gradeJerk = {};
+  for (const g of grades) {
+    const key = (g === 0 ? 'flat' : (g > 0 ? `up${(g * 100).toFixed(1)}` : `down${(-g * 100).toFixed(1)}`)).replace('.', 'p');
+    gradeJerk[key] = {
+      svc: stopOnGrade(g, 'service'),
+      em: stopOnGrade(g, 'emergency'),
+      svcDt01: stopOnGrade(g, 'service', 0.01),
+      emDt05: stopOnGrade(g, 'emergency', 0.05),
+    };
+  }
   const r = { accel: accel(), svcDry: stop('dry', false, 'service'), emDry: stop('dry', false, 'emergency'),
     svcLeaf: stop('dry', true, 'service'), emLeaf: stop('dry', true, 'emergency'),
     svcRain: stop('rain', false, 'service'), emRain: stop('rain', false, 'emergency'),
     notch6: notchStep(),
     hill: { dry: hillStart('dry', false), rain: hillStart('rain', false), snow: hillStart('snow', false), leaf: hillStart('dry', true) },
-    hillNoSand: { dry: hillStart('dry', false, false), rain: hillStart('rain', false, false), snow: hillStart('snow', false, false), leaf: hillStart('dry', true, false) } };
+    hillNoSand: { dry: hillStart('dry', false, false), rain: hillStart('rain', false, false), snow: hillStart('snow', false, false), leaf: hillStart('dry', true, false) },
+    gradeJerk };
   return r;
 }
 
@@ -93,6 +118,10 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   console.log(`notch 0→6 at 70 km/h: max jerk ${f(r.notch6.maxJerk)} m/s³`);
   console.log(`max hill start (reach 5 km/h in 30 s, full power, auto sand): dry ${f(r.hill.dry * 100)} %, rain ${f(r.hill.rain * 100)} %, snow ${f(r.hill.snow * 100)} %, leaf ${f(r.hill.leaf * 100)} %`);
   console.log(`max hill start, sanding disabled: dry ${f(r.hillNoSand.dry * 100)} %, rain ${f(r.hillNoSand.rain * 100)} %, snow ${f(r.hillNoSand.snow * 100)} %, leaf ${f(r.hillNoSand.leaf * 100)} %`);
+  console.log('grade jerk (max |da/dt| m/s³; service limit 1.2, emergency 5.0):');
+  for (const [k, v] of Object.entries(r.gradeJerk)) {
+    console.log(`  ${k}: svc ${f(v.svc.maxJerk)} (${f(v.svc.dist, 1)} m), em ${f(v.em.maxJerk)} (${f(v.em.dist, 1)} m), svc@dt0.01 ${f(v.svcDt01.maxJerk)}, em@dt0.05 ${f(v.emDt05.maxJerk)}`);
+  }
   console.log('JSON ' + JSON.stringify(r));
   await B.cleanup();
 }

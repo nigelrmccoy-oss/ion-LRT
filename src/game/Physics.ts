@@ -655,38 +655,59 @@ export class TrainPhysics {
     const FholdFull = this.holdBrake ? this.massKg * HOLD_BRAKE_DECEL : 0;
 
     // Stop smoothing: a jerk-limited stop has a ≤ √(2·J·v) near rest, so braking force is tapered
-    // instead of the v1.4.4 hard "speed = 0" snap (7.8 m/s² in one frame). Gravity pulling the car
-    // along its direction of travel is always countered in full so a stop on a down-grade works.
+    // instead of the v1.4.4 hard "speed = 0" snap (7.8 m/s² in one frame).
+    //
+    // v1.4.5 capped brake force above STANDSTILL_MS with gradeHold = max(0, −sv·Fgrade). On an
+    // uphill stop that term is 0, so the moving branch ran at |a| = aCap + g·sinθ while the
+    // static branch (< STANDSTILL_MS) followed the pure profile at |a| = aCap — a jump of
+    // g·sinθ in one frame (Code Critic on 4.5 % at dt = 0.02: 22.98 m/s³ service /
+    // 28.73 m/s³ emergency; even 1 % gave 6.08 / 10.26). Both branches now share one
+    // grade-aware profile: desired decel aCap, clamped by the physical ceiling with grade
+    // included, floor 0 so the ease-to-rest matches the flat-track comfort curve.
     const jStop = emergency ? JERK_EMERGENCY_BRAKE_MS3 : JERK_SERVICE_BRAKE_MS3;
 
     let a: number;
     const vStart = this.speed;
-    if (absV < STANDSTILL_MS) {
-      // Static case: rolling/curve resistance and brakes are reaction forces — they can
-      // hold the car but never push it backwards (v1.3 applied them with sign(dir),
-      // which made the car jitter ±0.3 m/s and "creep" when TE < resistance).
-      const applied = dir * te - Fgrade;
-      const holding = resist + FfrictionStatic + mEff * this.cmdTrackA + FholdFull;
-      if (Math.abs(applied) <= holding) {
-        // coast to rest along the jerk-limited profile instead of snapping to 0
-        const sv0 = Math.sign(this.speed);
-        // …but never faster than the brakes can actually decelerate the car (a leaf stop is adhesion-limited
-        // to ≈ 0.4 m/s², below the profile's √(2·J·v) in the last few cm)
-        // (the hold brake counts only at its ramped level here: it holds a stopped car at once, but it builds up like any brake)
-        const holdNow = resist + FfrictionStatic + mEff * this.cmdTrackA + (this.holdBrake ? mEff * this.cmdHoldA : 0);
-        const aHold = Math.max(0, holdNow + sv0 * applied) / mEff;
-        this.speed = sv0 * Math.max(jerkLimitedSpeed(absV, jStop, dt), absV - aHold * dt, 0);
+    const applied = dir * te - Fgrade;
+    const FbrakeCmd = FfrictionStatic + mEff * this.cmdTrackA; // friction + track (ramped)
+    const holdNow = this.holdBrake ? mEff * this.cmdHoldA : 0;
+    const FbrakeTotal = FbrakeCmd + holdNow;
+    const holdingFull = resist + FbrakeCmd + FholdFull;
+    const aCap = absV > 0 ? (absV - jerkLimitedSpeed(absV, jStop, dt)) / dt : 0;
+    // Under power that beats grade + resistance: force-integrate (traction path). Otherwise,
+    // when the brakes can hold the car against grade, follow the shared jerk-limited stop
+    // profile — same formula above and below STANDSTILL_MS, so the boundary is continuous.
+    const pulling = dir !== 0 && notchP > 0 && dir * (dir * te - Fgrade) > resist;
+    if (!pulling && Math.abs(applied) <= holdingFull) {
+      if (absV === 0) {
+        a = 0;
+      } else {
+        const sv = Math.sign(this.speed);
+        // Physical decel ceiling with the current brakes (grade included):
+        // F = dir·te − sv·(Fbrake+resist) − Fgrade  ⇒  (−sv)·a = (−sv·dir·te + Fbrake + resist + sv·Fgrade)/m
+        const aCeil = Math.max(0, (-sv * dir * te + FbrakeTotal + resist + sv * Fgrade) / mEff);
+        const aDecel = Math.min(aCap, aCeil); // floor 0: ease to rest on uphill like the flat profile
+        this.speed = sv * Math.max(0, absV - aDecel * dt);
         a = (this.speed - vStart) / dt;
+        // Report the brake force that realises aDecel (0 when the profile is coasting on grade)
+        Fbrake = Math.min(FbrakeTotal, Math.max(0, aDecel * mEff - resist - sv * Fgrade + sv * dir * te));
+      }
+    } else if (absV < STANDSTILL_MS) {
+      // Static and can't hold (or pulling against the brakes): reaction forces never push backwards.
+      const holding = holdingFull;
+      if (Math.abs(applied) <= holding) {
+        a = 0;
+        this.speed = 0;
       } else {
         a = (applied - Math.sign(applied) * holding) / mEff;
         this.speed += a * dt;
       }
     } else {
+      // Moving under power, or brakes can't hold: force integration. Still taper the brake
+      // channel with grade in the budget so a downhill runaway / partial-brake case stays
+      // on the profile when the brakes have the capacity.
       const sv = Math.sign(this.speed);
-      const gradeHold = Math.max(0, -sv * Fgrade);
-      const FbrakeTotal = Fbrake + this.cmdHoldA * mEff;
-      const aCap = (absV - jerkLimitedSpeed(absV, jStop, dt)) / dt; // decel of the jerk-limited stop profile over this step
-      const FbrakeEff = Math.min(FbrakeTotal, gradeHold + Math.max(0, mEff * aCap - resist));
+      const FbrakeEff = Math.min(FbrakeTotal, Math.max(0, mEff * aCap - resist - sv * Fgrade));
       const F = dir * te - sv * (FbrakeEff + resist) - Fgrade;
       a = F / mEff;
       const next = this.speed + a * dt;
