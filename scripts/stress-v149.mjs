@@ -113,9 +113,17 @@ export async function v149Tests(assert) {
       regenMild.voltageV > 750 && regenMild.voltageV <= UMAX2_V && regenMild.powerKw < 0,
       `${regenMild.voltageV.toFixed(1)} V, ${regenMild.powerKw.toFixed(0)} kW`);
 
+    // The ION layout is stiff: even 2 MW near a TPSS only lifts a few tens of
+    // volts (0.15 Ω/km estimate, many parallel feeds). Exercise the Umax2 cap
+    // on a synthetic weak feed (one box 10 km away) so dumped kW is observable.
+    const weakFeed = [{
+      id: 'weak', name: 'Synthetic weak feed', lat: 43.4988108, lon: -80.5296633,
+      nearestStation: 'test', osmWay: null, source: 'synthetic test feed', confidence: 'low', estimated: true, omsf: false,
+    }];
     const regenHard = samplePower({
-      lat: 43.4988108, lon: -80.5296633,
+      lat: 43.4988108, lon: -80.4096633, // ~10 km east of the lone box
       tractionPowerW: -2_000_000, pantographUp: true, auxKw: 0,
+      sites: weakFeed,
     });
     assert('v149. heavy regen is capped at 1000 V (Umax2) and reports dumped kW',
       Math.abs(regenHard.voltageV - UMAX2_V) < 1 && regenHard.dumpedKw > 100,

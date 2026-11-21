@@ -238,7 +238,7 @@ async function main() {
     let wsBrowser = null;
     for (let i = 0; i < 80; i++) {
       const blob = logs.join('');
-      const m2 = blob.match(/DevTools listening on (ws:\\/\\/\\S+)/);
+      const m2 = blob.match(/DevTools listening on (ws:\/\/\S+)/);
       if (m2) { wsBrowser = m2[1]; break; }
       if (chrome.exitCode != null) break;
       await sleep(50);

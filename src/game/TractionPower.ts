@@ -6,8 +6,14 @@
  * loop resistance, and the downtown Kitchener site are ESTIMATES — see comments.
  *
  * Substation coordinates: OpenStreetMap `power=substation` + `substation=traction`
- * near railway=light_rail (ODbL, © OpenStreetMap contributors), queried 20 Nov 2026.
+ * near the Stage 1 line (ODbL, © OpenStreetMap contributors). Baked into
+ * TPSS_SITES and scripts/raw/overpass-tpss.json — the game never queries
+ * Overpass at runtime. Rechecked against the local Ontario Overpass snapshot
+ * (osm3s timestamp_osm_base 2026-11-20T21:15:19Z, 4:15 PM America/Toronto
+ * on 20 Nov 2026) on 21 Nov 2026; all 12 mapped way centroids match.
  * Names and “nearest station” labels are descriptive, not official Region numbers.
+ * Ways 878420649 (OMSF) and 881139599 (Conestoga) are same-compound duplicates
+ * and are not given their own sites.
  */
 import * as THREE from 'three';
 import { haversineM, lonLatToLocal } from './coords';
