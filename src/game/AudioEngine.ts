@@ -1,5 +1,8 @@
+import { renderDoorSfx } from './DoorCycle';
+
 /**
  * Web Audio cab sounds: inverter whine scales with load; flange/wheel roar on curves.
+ * Door chime + plug-door mechanism are a tribute synthesis (see DoorCycle.ts).
  */
 export class AudioEngine {
   private ctx: AudioContext | null = null;
@@ -14,6 +17,15 @@ export class AudioEngine {
   private flangeFilter: BiquadFilterNode | null = null;
   private roarGain: GainNode | null = null;
   private roarSrc: AudioBufferSourceNode | null = null;
+  private doorChimeGain: GainNode | null = null;
+  private doorMechGain: GainNode | null = null;
+  private doorMechFilter: BiquadFilterNode | null = null;
+  private doorPanner: PannerNode | null = null;
+  private doorBufs: {
+    close?: { chime: AudioBuffer; mech: AudioBuffer };
+    open?: { chime: AudioBuffer; mech: AudioBuffer };
+  } = {};
+  private doorPlaying: AudioBufferSourceNode[] = [];
 
   ensure() {
     if (!this.ctx) {
@@ -40,8 +52,115 @@ export class AudioEngine {
       this.invOsc.start();
 
       this.startNoiseLoops();
+      this.startDoorBus();
     }
     if (this.ctx.state === 'suspended') void this.ctx.resume();
+  }
+
+  private startDoorBus() {
+    const ctx = this.ctx!;
+    this.doorChimeGain = ctx.createGain();
+    this.doorChimeGain.gain.value = 0.9;
+    this.doorChimeGain.connect(ctx.destination);
+
+    this.doorMechFilter = ctx.createBiquadFilter();
+    this.doorMechFilter.type = 'lowpass';
+    this.doorMechFilter.frequency.value = 8000;
+    this.doorMechFilter.Q.value = 0.7;
+    this.doorPanner = ctx.createPanner();
+    this.doorPanner.panningModel = 'equalpower';
+    this.doorPanner.distanceModel = 'inverse';
+    this.doorPanner.refDistance = 6;
+    this.doorPanner.maxDistance = 80;
+    this.doorPanner.rolloffFactor = 1.1;
+    this.doorMechGain = ctx.createGain();
+    this.doorMechGain.gain.value = 0.4;
+    this.doorMechGain
+      .connect(this.doorMechFilter)
+      .connect(this.doorPanner)
+      .connect(ctx.destination);
+
+    this.cacheDoorBuffers();
+  }
+
+  private cacheDoorBuffers() {
+    const ctx = this.ctx!;
+    const toBuf = (data: Float32Array, sr: number) => {
+      const buf = ctx.createBuffer(1, data.length, sr);
+      buf.copyToChannel(data, 0);
+      return buf;
+    };
+    for (const kind of ['close', 'open'] as const) {
+      const stems = renderDoorSfx(kind, ctx.sampleRate);
+      this.doorBufs[kind] = {
+        chime: toBuf(stems.chime, stems.sampleRate),
+        mech: toBuf(stems.mech, stems.sampleRate),
+      };
+    }
+  }
+
+  /**
+   * Place the listener at the camera and balance cab vs exterior door levels.
+   * Cab: the PA chime stays clear; the mechanism is quieter and muffled (doors
+   * are down the consist). Exterior / platform side-cam: mechanism is louder.
+   */
+  setListener(
+    camMode: 0 | 1 | 2,
+    pos: { x: number; y: number; z: number },
+    fwd: { x: number; y: number; z: number },
+    up: { x: number; y: number; z: number },
+    doorPos?: { x: number; y: number; z: number },
+  ) {
+    if (!this.ctx) return;
+    const l = this.ctx.listener;
+    const t = this.ctx.currentTime;
+    if (l.positionX) {
+      l.positionX.setTargetAtTime(pos.x, t, 0.05);
+      l.positionY.setTargetAtTime(pos.y, t, 0.05);
+      l.positionZ.setTargetAtTime(pos.z, t, 0.05);
+      l.forwardX.setTargetAtTime(fwd.x, t, 0.05);
+      l.forwardY.setTargetAtTime(fwd.y, t, 0.05);
+      l.forwardZ.setTargetAtTime(fwd.z, t, 0.05);
+      l.upX.setTargetAtTime(up.x, t, 0.05);
+      l.upY.setTargetAtTime(up.y, t, 0.05);
+      l.upZ.setTargetAtTime(up.z, t, 0.05);
+    }
+    if (this.doorPanner && doorPos && this.doorPanner.positionX) {
+      this.doorPanner.positionX.setTargetAtTime(doorPos.x, t, 0.08);
+      this.doorPanner.positionY.setTargetAtTime(doorPos.y, t, 0.08);
+      this.doorPanner.positionZ.setTargetAtTime(doorPos.z, t, 0.08);
+    }
+    if (!this.doorChimeGain || !this.doorMechGain || !this.doorMechFilter) return;
+    // 0 = cab, 1 = chase, 2 = trackside / platform
+    const chime = camMode === 0 ? 0.95 : camMode === 1 ? 0.42 : 0.72;
+    const mech = camMode === 0 ? 0.32 : camMode === 1 ? 1.0 : 1.15;
+    const lp = camMode === 0 ? 2800 : 14000;
+    this.doorChimeGain.gain.setTargetAtTime(chime, t, 0.08);
+    this.doorMechGain.gain.setTargetAtTime(mech, t, 0.08);
+    this.doorMechFilter.frequency.setTargetAtTime(lp, t, 0.08);
+  }
+
+  private playDoor(kind: 'close' | 'open') {
+    this.ensure();
+    const ctx = this.ctx!;
+    const bufs = this.doorBufs[kind];
+    if (!bufs || !this.doorChimeGain || !this.doorMechGain) return;
+    for (const s of this.doorPlaying) {
+      try { s.stop(); } catch { /* already ended */ }
+    }
+    this.doorPlaying = [];
+    const start = (buf: AudioBuffer, dest: AudioNode) => {
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      src.connect(dest);
+      src.start();
+      src.onended = () => {
+        this.doorPlaying = this.doorPlaying.filter((x) => x !== src);
+      };
+      this.doorPlaying.push(src);
+    };
+    start(bufs.chime, this.doorChimeGain);
+    start(bufs.mech, this.doorMechGain);
   }
 
   private noiseBuffer(seconds: number): AudioBuffer {
@@ -150,72 +269,13 @@ export class AudioEngine {
     }
   }
 
+  /** Full-close sequence: G–E–C chime, then plug-door slide, thud, lock. */
   doorClose() {
-    this.ensure();
-    const ctx = this.ctx!;
-    const t0 = ctx.currentTime;
-    const notes = [1318.5, 1046.5, 783.99];
-    notes.forEach((freq, i) => {
-      const o = ctx.createOscillator();
-      const g = ctx.createGain();
-      o.type = 'sine';
-      o.frequency.value = freq;
-      const start = t0 + i * 0.22;
-      g.gain.setValueAtTime(0.0001, start);
-      g.gain.exponentialRampToValueAtTime(0.11, start + 0.02);
-      g.gain.exponentialRampToValueAtTime(0.0001, start + 0.18);
-      o.connect(g).connect(ctx.destination);
-      o.start(start);
-      o.stop(start + 0.2);
-    });
-    const hissStart = t0 + 0.72;
-    const dur = 0.85;
-    const buf = ctx.createBuffer(1, Math.floor(ctx.sampleRate * dur), ctx.sampleRate);
-    const data = buf.getChannelData(0);
-    for (let i = 0; i < data.length; i++) data[i] = (Math.random() * 2 - 1) * 0.35;
-    const src = ctx.createBufferSource();
-    src.buffer = buf;
-    const bp = ctx.createBiquadFilter();
-    bp.type = 'bandpass';
-    bp.frequency.value = 1800;
-    bp.Q.value = 0.7;
-    const hg = ctx.createGain();
-    hg.gain.setValueAtTime(0.0001, hissStart);
-    hg.gain.exponentialRampToValueAtTime(0.07, hissStart + 0.08);
-    hg.gain.exponentialRampToValueAtTime(0.0001, hissStart + dur);
-    src.connect(bp).connect(hg).connect(ctx.destination);
-    src.start(hissStart);
-    const clunkAt = hissStart + 0.78;
-    const cl = ctx.createOscillator();
-    const cg = ctx.createGain();
-    cl.type = 'triangle';
-    cl.frequency.setValueAtTime(140, clunkAt);
-    cl.frequency.exponentialRampToValueAtTime(60, clunkAt + 0.08);
-    cg.gain.setValueAtTime(0.09, clunkAt);
-    cg.gain.exponentialRampToValueAtTime(0.0001, clunkAt + 0.1);
-    cl.connect(cg).connect(ctx.destination);
-    cl.start(clunkAt);
-    cl.stop(clunkAt + 0.12);
+    this.playDoor('close');
   }
 
+  /** Open sequence: single G chime, unlatch, slide, soft end-stop. */
   doorOpen() {
-    this.ensure();
-    const ctx = this.ctx!;
-    const t0 = ctx.currentTime;
-    const dur = 0.55;
-    const buf = ctx.createBuffer(1, Math.floor(ctx.sampleRate * dur), ctx.sampleRate);
-    const data = buf.getChannelData(0);
-    for (let i = 0; i < data.length; i++) data[i] = (Math.random() * 2 - 1) * 0.3;
-    const src = ctx.createBufferSource();
-    src.buffer = buf;
-    const bp = ctx.createBiquadFilter();
-    bp.type = 'bandpass';
-    bp.frequency.value = 1400;
-    bp.Q.value = 0.6;
-    const g = ctx.createGain();
-    g.gain.setValueAtTime(0.05, t0);
-    g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
-    src.connect(bp).connect(g).connect(ctx.destination);
-    src.start(t0);
+    this.playDoor('open');
   }
 }

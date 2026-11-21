@@ -367,6 +367,8 @@ export class TrainPhysics {
   leafFall = false;
   pantographUp = true;
   doorsOpen = false;
+  /** Finer door-cycle phase for the HUD / interlock banner (idle when closed or open). */
+  doorPhase: 'closed' | 'open' | 'opening' | 'closing' = 'closed';
   wheelslip = false;
   lineVoltage = 750;
   vigilanceTimer = 45;
@@ -770,7 +772,11 @@ export class TrainPhysics {
 
   /** HUD / tutorial: why traction is cut (doors, N, vigilance, panto, voltage). */
   powerBlockedReason(): string | null {
-    if (this.doorsOpen) return 'Doors open — close with T';
+    if (this.doorsOpen) {
+      if (this.doorPhase === 'closing') return 'Doors closing';
+      if (this.doorPhase === 'opening') return 'Doors opening';
+      return 'Doors open — close with T';
+    }
     if (this.reverser === 0) return 'Reverser Neutral — press R for Forward';
     if (this.overspeedPenalty) return 'Overspeed penalty brake — slow below the limit';
     if (!this.deadmanOk) return 'Vigilance penalty — notch W/S to reset';
