@@ -1,5 +1,7 @@
 import { Game, type RouteKey } from './game/Game';
 import type { Weather } from './game/Physics';
+import { bindMapCacheOptions } from './game/map/mapCacheUi';
+import { attachMapPreload, detachMapPreload } from './game/map/mapPreload';
 
 const canvas = document.getElementById('c') as HTMLCanvasElement;
 const menu = document.getElementById('menu')!;
@@ -58,6 +60,7 @@ const hud = {
 
 let stationsData: any = null;
 const game = new Game(canvas, hud);
+bindMapCacheOptions(document);
 
 async function initMenu() {
   stationsData = await (await fetch('./data/stations.json')).json();
@@ -77,6 +80,7 @@ function populateStations() {
 }
 
 function showMenu() {
+  detachMapPreload();
   game.stop();
   menu.classList.remove('hidden');
   hudEl.classList.add('hidden');
@@ -149,6 +153,7 @@ async function startRun(extra: RunExtra = {}) {
       document.getElementById('againBtn')?.addEventListener('click', showMenu);
     },
   });
+  attachMapPreload(game);
   canvas.focus();
 }
 

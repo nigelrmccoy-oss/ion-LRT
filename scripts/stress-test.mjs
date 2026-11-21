@@ -960,6 +960,8 @@ async function main() {
     await v149Tests(assert);
     const { v149DoorTests } = await import('./stress-v149-doors.mjs');
     await v149DoorTests(assert);
+    const { mapCacheTests } = await import('./stress-map-cache.mjs');
+    await mapCacheTests(assert);
   }
 
   const failed = results.filter((r) => !r.ok);
