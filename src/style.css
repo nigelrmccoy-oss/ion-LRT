@@ -49,3 +49,9 @@ button:hover{filter:brightness(1.08)}
 #photorealCredits.hidden{display:none}
 #photorealCredits .credit-logo{height:16px;width:auto}
 #photorealCredits .credit-sep{margin-left:14px;opacity:.8}
+
+.cache-box{margin:.85rem 0 .2rem;padding:.7rem .75rem .75rem;border:1px solid #3a4a66;border-radius:8px;background:#10192b}
+.cache-box .section-label{font-size:.72rem;letter-spacing:.04em;text-transform:uppercase;opacity:.7;margin-bottom:.25rem}
+.cache-box .sub{margin-bottom:.45rem}
+button.ghost, #clearMapCacheBtn{width:100%;margin-top:.15rem;background:#1a2438;border:1px solid #3a4a66;font-weight:600;font-size:.9rem}
+button.ghost:hover, #clearMapCacheBtn:hover{filter:brightness(1.08)}

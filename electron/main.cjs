@@ -1,11 +1,13 @@
-const { app, BrowserWindow, Menu } = require('electron');
+const { app, BrowserWindow, Menu, ipcMain } = require('electron');
 const path = require('path');
 
 // Prevent Alt/menu accelerators from eating cab keys (R, T, etc.)
 Menu.setApplicationMenu(null);
 
+let mainWindow;
+
 function createWindow() {
-  const win = new BrowserWindow({
+  mainWindow = new BrowserWindow({
     width: 1280,
     height: 800,
     minWidth: 960,
@@ -14,13 +16,19 @@ function createWindow() {
     backgroundColor: '#0b1220',
     autoHideMenuBar: true,
     webPreferences: {
+      preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
       nodeIntegration: false,
+      sandbox: true,
     },
   });
-  win.setMenuBarVisibility(false);
-  win.loadFile(path.join(__dirname, '..', 'dist', 'index.html'));
+  mainWindow.setMenuBarVisibility(false);
+  mainWindow.loadFile(path.join(__dirname, '..', 'dist', 'index.html'));
 }
 
-app.whenReady().then(createWindow);
+app.whenReady().then(() => {
+  const { installMapCache } = require('./map-cache.cjs');
+  installMapCache(ipcMain, path.join(app.getPath('userData'), 'map-cache'), () => mainWindow?.webContents);
+  createWindow();
+});
 app.on('window-all-closed', () => app.quit());
