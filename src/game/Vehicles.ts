@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import {
   MODULES, LRV_WIDTH_M, LRV_HEIGHT_M, LRV_FLOOR_ATR_M, OCS_WIRE_HEIGHT_STREET_M,
 } from './Clearances';
@@ -321,15 +322,157 @@ export type ArticulatedLRV = {
   trucks: THREE.Group[];
 };
 
+/** Vite serves files in public/ at the app base. */
+export const FLEXITY_GLB_URL = './models/flexity.glb';
+
+const FLEXITY_MODULE_NAMES = [
+  'module-A-cab', 'module-B', 'module-C-centre', 'module-D', 'module-E-cab',
+] as const;
+const FLEXITY_TRUCK_NAMES = ['truck-power-A', 'truck-trailer', 'truck-power-E'] as const;
+
+/**
+ * Blender's glTF exporter writes Y-up, -Z-forward. The sim is Y-up, +Z-forward
+ * (cab A nose at local +z). Reflect through the XY plane (not a 180° Y rotation)
+ * so left/right and lettering UVs stay put. Game.placeConsist can then pose
+ * each module with only a track yaw.
+ */
+function bakeGltfForward(root: THREE.Object3D) {
+  const marker = root.getObjectByName('axis-fwd') ?? root.getObjectByName('nose-A');
+  if (marker) {
+    root.updateMatrixWorld(true);
+    const p = new THREE.Vector3();
+    marker.getWorldPosition(p);
+    if (marker.name === 'axis-fwd' && p.z > 0.3) return;
+    if (marker.name === 'nose-A' && p.z > 1) return;
+  }
+  const flipZ = new THREE.Matrix4().makeScale(1, 1, -1);
+  root.traverse((obj) => {
+    obj.position.z *= -1;
+    obj.rotation.x *= -1;
+    obj.rotation.y *= -1;
+    const mesh = obj as THREE.Mesh;
+    if (!mesh.isMesh || !mesh.geometry) return;
+    mesh.geometry = mesh.geometry.clone();
+    mesh.geometry.applyMatrix4(flipZ);
+    const idx = mesh.geometry.index;
+    if (idx) {
+      const arr = idx.array;
+      for (let i = 0; i + 2 < arr.length; i += 3) {
+        const t = arr[i];
+        arr[i] = arr[i + 2];
+        arr[i + 2] = t;
+      }
+      idx.needsUpdate = true;
+    }
+    mesh.geometry.computeVertexNormals();
+  });
+  root.updateMatrixWorld(true);
+}
+
+function wireFlexityHooks(root: THREE.Object3D) {
+  root.traverse((o) => {
+    if (
+      o.name === 'door'
+      || o.name.startsWith('door-A')
+      || o.name.startsWith('door-E')
+      || o.name.startsWith('door-M')
+    ) {
+      o.name = 'door';
+      o.userData.side = o.position.x >= 0 ? 1 : -1;
+      o.userData.baseX = o.position.x;
+      o.userData.baseZ = o.position.z;
+    }
+    if (o.name.startsWith('destSign')) o.name = 'destSign';
+    if (o.name.startsWith('lampAnchor-')) {
+      const kind = o.name.includes('tail') ? 'tail' : 'head';
+      const tag = o.position.x < 0 ? 'L' : 'R';
+      o.name = `lampAnchor-${kind}-${tag}`;
+    }
+    const mesh = o as THREE.Mesh;
+    if (mesh.isMesh) {
+      const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+      for (const mat of mats) {
+        if (mat && /lrvGlass|glass/i.test(mat.name)) mat.name = 'lrvGlass';
+      }
+      mesh.castShadow = true;
+    }
+  });
+  for (const n of ['axis-fwd', 'nose-A']) {
+    const o = root.getObjectByName(n);
+    if (o?.parent) o.parent.remove(o);
+  }
+}
+
+/** Assemble a loaded Flexity GLB into the same ArticulatedLRV shape the procedural mesh uses. */
+export function assembleFlexityFromGltf(scene: THREE.Object3D): ArticulatedLRV {
+  const group = new THREE.Group();
+  group.name = 'flexity';
+  const modules: THREE.Group[] = [];
+  for (const name of FLEXITY_MODULE_NAMES) {
+    const o = scene.getObjectByName(name);
+    if (!o) throw new Error(`Flexity GLB missing ${name}`);
+    o.position.set(0, 0, 0);
+    o.rotation.set(0, 0, 0);
+    o.scale.set(1, 1, 1);
+    bakeGltfForward(o);
+    wireFlexityHooks(o);
+    group.add(o);
+    modules.push(o as THREE.Group);
+  }
+  const trucks: THREE.Group[] = [];
+  for (const name of FLEXITY_TRUCK_NAMES) {
+    const o = scene.getObjectByName(name);
+    if (!o) throw new Error(`Flexity GLB missing ${name}`);
+    o.position.set(0, 0, 0);
+    o.rotation.set(0, 0, 0);
+    o.scale.set(1, 1, 1);
+    bakeGltfForward(o);
+    group.add(o);
+    trucks.push(o as THREE.Group);
+  }
+  if (!modules[0].getObjectByName('destSign') || !modules[0].getObjectByName('lampAnchor-head-L')) {
+    throw new Error('Flexity GLB missing cab-A hooks after bake');
+  }
+  if (!modules[2].getObjectByName('pantoShoe') || !modules[2].getObjectByName('pantograph')) {
+    throw new Error('Flexity GLB missing pantograph hooks');
+  }
+  let doors = 0;
+  for (const m of modules) m.traverse((o) => { if (o.name === 'door') doors++; });
+  if (doors !== 8) throw new Error(`Flexity GLB expected 8 doors, got ${doors}`);
+  return { group, modules, trucks };
+}
+
+/**
+ * Load the Blender-built GLB (public/models/flexity.glb). Falls back to the
+ * procedural v1.4.8 mesh if the load fails, and always uses the procedural
+ * mesh in Node (tests, drive-sim) where there is no fetch / GPU decoder.
+ */
+export async function createFlexityArticulatedAsync(
+  url = FLEXITY_GLB_URL,
+): Promise<ArticulatedLRV> {
+  if (typeof window === 'undefined' || typeof fetch === 'undefined') {
+    return createFlexityArticulated();
+  }
+  try {
+    const loader = new GLTFLoader();
+    const gltf = await loader.loadAsync(url);
+    return assembleFlexityFromGltf(gltf.scene);
+  } catch (err) {
+    console.warn('[flexity] GLB load failed, using procedural mesh:', err);
+    return createFlexityArticulated();
+  }
+}
+
+
 /**
  * Articulated 5-module Flexity Freedom (30.8 m × 2.65 m × 3.6 m, Bo'2Bo').
  * Module lengths/truck positions from Clearances.ts (see docs/CLEARANCES.md).
  *
- * v1.4.8: procedural curved shell (raked lofted nose, rounded roof shoulders, smooth
- * skirts, roof fairings, bogie skirts) with a painted tribute livery from the CC0
- * ION service-livery photos. Shape language is inspired by the Gold Coast Flexity 2
- * (curved raked nose, rounded shoulders) but the mesh is original — not a copy.
- * No official ION / GRT logos or wordmarks.
+ * v1.4.8 procedural fallback (used in Node tests and if the GLB fails to load).
+ * The in-game model is the Blender-built GLB from tools/blender/build_flexity.py,
+ * assembled by createFlexityArticulatedAsync(). Shape language is inspired by
+ * the Gold Coast Flexity 2 (curved raked nose, rounded shoulders) but the mesh
+ * is original — not a copy. No official ION / GRT logos or wordmarks.
  */
 export function createFlexityArticulated(): ArticulatedLRV {
   const g = new THREE.Group();

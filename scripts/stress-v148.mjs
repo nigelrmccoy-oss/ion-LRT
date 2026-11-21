@@ -1,9 +1,10 @@
 /**
- * v1.4.8 checks: procedural 5-module Flexity Freedom mesh + tribute livery hooks.
+ * v1.4.8 checks: procedural 5-module Flexity Freedom mesh + tribute livery hooks
+ * plus the committed Blender GLB (file presence, size, named module roots).
  * Geometry only — physics is unchanged from v1.4.7 / v1.4.6.
  */
 import * as esbuild from 'esbuild';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, readFile, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -128,6 +129,42 @@ export async function v148Tests(assert) {
   const eye = new THREE.Vector3(V.DIESEL_CAB_EYE.x, V.DIESEL_CAB_EYE.y, V.DIESEL_CAB_EYE.z);
   const cabBox = new THREE.Box3().setFromObject(loco.getObjectByName('cab'));
   assert('v148. diesel cab eye still inside the (hollow) cab', cabBox.containsPoint(eye));
+
+  // Committed Blender GLB (game load path). Node tests keep using the procedural mesh.
+  const glbPath = path.join(root, 'public', 'models', 'flexity.glb');
+  let glbOk = false;
+  let glbSize = 0;
+  let glbNames = [];
+  try {
+    const st = await stat(glbPath);
+    glbSize = st.size;
+    const buf = await readFile(glbPath);
+    const magic = buf.subarray(0, 4).toString('ascii');
+    const jsonLen = buf.readUInt32LE(12);
+    const jsonType = buf.subarray(16, 20).toString('ascii');
+    const json = JSON.parse(buf.subarray(20, 20 + jsonLen).toString('utf8').trim());
+    glbNames = (json.nodes || []).map((n) => n.name).filter(Boolean);
+    const mats = (json.materials || []).map((m) => m.name);
+    const required = [
+      'module-A-cab', 'module-B', 'module-C-centre', 'module-D', 'module-E-cab',
+      'truck-power-A', 'truck-trailer', 'truck-power-E',
+      'pantoShoe', 'pantograph', 'destSign-A', 'destSign-E',
+      'lampAnchor-head-L', 'lampAnchor-head-R', 'lampAnchor-tail-L', 'lampAnchor-tail-R',
+    ];
+    const missing = required.filter((n) => !glbNames.includes(n));
+    const doors = glbNames.filter((n) => /^door-[AEM]/.test(n));
+    assert('v148. flexity.glb exists and is a GLB', magic === 'glTF' && jsonType === 'JSON');
+    assert('v148. flexity.glb is under 3 MB', glbSize > 50_000 && glbSize < 3_000_000, `size=${glbSize}`);
+    assert('v148. flexity.glb has A–E module roots, trucks, and light/panto hooks',
+      missing.length === 0, missing.join(','));
+    assert('v148. flexity.glb has 8 door nodes', doors.length === 8, `doors=${doors.join(',')}`);
+    assert('v148. flexity.glb has lrvGlass material', mats.includes('lrvGlass'), mats.join(','));
+    glbOk = true;
+  } catch (err) {
+    if (String(err).includes('v148.')) throw err;
+    assert('v148. flexity.glb is present and parseable', false, String(err));
+  }
+  assert('v148. flexity.glb checks ran', glbOk, `size=${glbSize}`);
 
   await cleanup();
   await cC();

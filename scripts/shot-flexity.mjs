@@ -1,5 +1,5 @@
 /**
- * Headless studio shots of the v1.4.8 Flexity (side, 3/4, cab end, curve articulation).
+ * Headless studio shots of the v1.4.8 Flexity model v2 (side, 3/4, cab end, curve, nose close-up).
  * Heavy: wrap with flock and a 15-minute cap. Kills its own static server on exit.
  */
 import * as esbuild from 'esbuild';
@@ -23,7 +23,7 @@ const CHROME_CANDIDATES = [
 
 const pageJs = `
 import * as THREE from 'three';
-import { createFlexityArticulated } from './Vehicles.ts';
+import { createFlexityArticulatedAsync } from './Vehicles.ts';
 import { MODULES } from './Clearances.ts';
 
 const TRUCKS = [4.7705, 15.4, 26.0295];
@@ -95,7 +95,7 @@ window.__READY__ = false;
   const W = 1280, H = 720;
   const renderer = makeRenderer(W, H);
   const scene = makeScene();
-  const lrv = createFlexityArticulated();
+  const lrv = await createFlexityArticulatedAsync('./models/flexity.glb');
   scene.add(lrv.group);
   const cam = new THREE.PerspectiveCamera(42, W / H, 0.1, 200);
   const snap = () => {
@@ -116,6 +116,10 @@ window.__READY__ = false;
   cam.position.set(0.3, 1.7, 24);
   cam.lookAt(0, 1.4, 15.2);
   window.__SHOTS__.cabEnd = snap();
+
+  cam.position.set(3.2, 1.55, 19.2);
+  cam.lookAt(0, 1.15, 15.35);
+  window.__SHOTS__.nose = snap();
 
   layout(lrv, 32);
   cam.position.set(20, 8.5, 8);
@@ -188,13 +192,32 @@ async function main() {
     bundle: true,
     format: 'esm',
     platform: 'browser',
-    alias: { three: threeEntry },
+    alias: {
+      // Keep the 'three' alias, but also pin the examples path so it is not
+      // resolved as three.module.js/examples/...
+      'three/examples/jsm/loaders/GLTFLoader.js': path.join(root, 'node_modules/three/examples/jsm/loaders/GLTFLoader.js'),
+      three: threeEntry,
+    },
     logLevel: 'silent',
   });
   await writeFile(path.join(dir, 'index.html'), html);
 
+  const publicDir = path.join(root, 'public');
   const server = createServer(async (req, res) => {
     const file = (req.url || '/').split('?')[0] === '/' ? '/index.html' : (req.url || '/').split('?')[0];
+    if (file.startsWith('/models/')) {
+      const fp = path.join(publicDir, path.normalize(file).replace(/^[/\\]+/, ''));
+      if (!fp.startsWith(publicDir)) { res.writeHead(403); res.end(); return; }
+      try {
+        const data = await readFile(fp);
+        res.writeHead(200, { 'content-type': 'model/gltf-binary', 'cache-control': 'no-store' });
+        res.end(data);
+        return;
+      } catch {
+        res.writeHead(404); res.end('no model');
+        return;
+      }
+    }
     const fp = path.join(dir, path.normalize(file).replace(/^[/\\]+/, ''));
     if (!fp.startsWith(dir)) { res.writeHead(403); res.end(); return; }
     try {
@@ -263,7 +286,7 @@ async function main() {
       await send('Page.enable');
       let ready = false;
       let err = null;
-      for (let i = 0; i < 80; i++) {
+      for (let i = 0; i < 120; i++) {
         const ev = await send('Runtime.evaluate', {
           expression: '({ready: !!window.__READY__, err: window.__ERROR__ || null})',
           returnByValue: true,
@@ -274,7 +297,7 @@ async function main() {
         await sleep(250);
       }
       if (!ready) throw new Error('render not ready: ' + (err || 'timeout'));
-      for (const name of ['side', 'front34', 'cabEnd', 'curve']) {
+      for (const name of ['side', 'front34', 'cabEnd', 'nose', 'curve']) {
         const ev = await send('Runtime.evaluate', {
           expression: `window.__SHOTS__.${name}`,
           returnByValue: true,

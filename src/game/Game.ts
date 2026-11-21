@@ -5,7 +5,7 @@ import { TrainPhysics, type Weather, MASS_FLEXITY_KG, MASS_WCR_KG, MASS_CN_KG, A
 import { WeatherFX } from './WeatherFX';
 import { Input } from './Input';
 import { AudioEngine } from './AudioEngine';
-import { createFlexityArticulated, createDieselConsist, type ArticulatedLRV } from './Vehicles';
+import { createFlexityArticulatedAsync, createDieselConsist, type ArticulatedLRV } from './Vehicles';
 import { poseConsist, superelevationFor, buildCantProfile, type ConsistPose } from './Articulation';
 import { TRUCK_FROM_NOSE_M, LRV_LENGTH_M, LRV_FLOOR_ATR_M } from './Clearances';
 import { DIESEL_CAB_EYE, DIESEL_CONSIST_FRONT_M, DIESEL_CONSIST_REAR_M } from './Vehicles';
@@ -263,7 +263,7 @@ export class Game {
 
     if (this.train) this.scene.remove(this.train);
     if (electric) {
-      this.lrv = createFlexityArticulated();
+      this.lrv = await createFlexityArticulatedAsync();
       this.train = this.lrv.group;
     } else {
       this.lrv = null;
