@@ -59,9 +59,9 @@ export async function loadWorld(M) {
   const dem = new M.Elevation();
   dem.meta = meta;
   const bin = await readFile(path.join(root, 'public/data/elevation.bin'));
-  dem.grid = new Float32Array(bin.buffer.slice(bin.byteOffset, bin.byteOffset + bin.byteLength));
-  const spots = Object.values(meta.spot_checks_m).map((q) => q.elev_m).filter((v) => v != null);
-  dem.baseElev = spots.reduce((a, b) => a + b, 0) / Math.max(1, spots.length);
+  const fineBin = meta.fine ? await readFile(path.join(root, 'public/data', meta.fine.binary)) : null;
+  dem.init(meta, bin, fineBin);
+  const design = (await readJson('track-design.json')).lines;
   const demAt = (lon, lat) => dem.elevLonLat(lon, lat);
   const coords = async (f) => (await readJson(f)).features[0].geometry.coordinates;
   const mk = async (f, prof, name, rev, opts) => M.Track.fromLonLatProfile(await coords(f), prof, name, dem.baseElev, rev, demAt, opts);
@@ -73,11 +73,11 @@ export async function loadWorld(M) {
   const stations = await readJson('stations.json');
   const platforms = (await readJson('platforms.json')).platforms;
 
-  const ion = await mk('ion-track.geojson', meta.track_profiles.ion, 'ION reference', false, { refit: false });
+  const ion = await mk('ion-track.geojson', meta.track_profiles.ion, 'ION reference', false, { refit: false, design: design.ion });
   const tracks = {};
   for (const rev of [false, true]) {
-    const sb = await mk('ion-sb.geojson', undefined, 'ION LRT southbound', rev);
-    const nb = await mk('ion-nb.geojson', undefined, 'ION LRT northbound', rev);
+    const sb = await mk('ion-sb.geojson', meta.track_profiles.sb, 'ION LRT southbound', rev, { design: design.sb });
+    const nb = await mk('ion-nb.geojson', meta.track_profiles.nb, 'ION LRT northbound', rev, { design: design.nb });
     // Game: ionNb.blendHeightsToward(ionSb). Blend is position-based, so the reversed NB
     // is blended toward the (same-direction) reversed SB.
     nb.blendHeightsToward(sb);
@@ -87,10 +87,10 @@ export async function loadWorld(M) {
     }
     tracks[`ion-sb.geojson|${rev}`] = sb;
     tracks[`ion-nb.geojson|${rev}`] = nb;
-    tracks[`waterloo-spur.geojson|${rev}`] = await mk('waterloo-spur.geojson', meta.track_profiles.spur, 'Waterloo Spur', rev);
-    tracks[`guelph-sub.geojson|${rev}`] = await mk('guelph-sub.geojson', meta.track_profiles.guelph, 'Guelph Sub', rev);
+    tracks[`waterloo-spur.geojson|${rev}`] = await mk('waterloo-spur.geojson', meta.track_profiles.spur, 'Waterloo Spur', rev, { design: design.spur });
+    tracks[`guelph-sub.geojson|${rev}`] = await mk('guelph-sub.geojson', meta.track_profiles.guelph, 'Guelph Sub', rev, { design: design.guelph });
   }
-  return { meta, dem, row, sigFile, stations, platforms, ion, tracks };
+  return { meta, dem, row, sigFile, stations, platforms, ion, tracks, design };
 }
 
 /** Stations for a run, laid out like StationSystem.build() (pure part). */
@@ -191,8 +191,12 @@ export function driveRun(M, W, cfg) {
         // still be made with full service braking, else clear the intersection.
         const dLine = enforceDir > 0 ? ahead.s_ion - enforceS : enforceS - ahead.s_ion;
         const vv = Math.abs(v);
-        const bMax = Math.max(0.1, Math.min(SB, 0.92 * P.adhesionDecel(vv)) - (G * Math.max(0, -sample.grade)) / ROT);
-        const canMake = (vv * vv) / (2 * bMax) <= dLine - 2;
+        // steepest fall between the car and the stop line (lidar profile: up to ≈ 6 %), not
+        // just the grade under the car, plus the ≈ 0.7 s service-brake build-up (≈ 0.35·v m)
+        let fall = Math.max(0, -sample.grade);
+        for (let d = 0; d <= Math.max(0, dLine); d += 5) fall = Math.max(fall, -grd[Math.min(N - 1, Math.max(0, Math.round(s + enforceDir * d)))]);
+        const bMax = Math.max(0.1, Math.min(SB, 0.92 * P.adhesionDecel(vv)) - (G * fall) / ROT);
+        const canMake = (vv * vv) / (2 * 0.85 * bMax) + vv * 0.35 <= dLine - 2; // 0.85: same margin as the amber approach cap
         const soft = (vv * vv) / (2 * 0.6) <= dLine - 25;
         // decision at amber onset is kept until the aspect changes (no flip-flop when μ changes)
         const k = `${ahead.id}`;

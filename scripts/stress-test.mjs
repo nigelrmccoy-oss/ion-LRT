@@ -618,11 +618,10 @@ async function main() {
     const dem2 = new el.Elevation();
     dem2.meta = elevMeta;
     const bin = await readFile(path.join(root, 'public/data/elevation.bin'));
-    dem2.grid = new Float32Array(bin.buffer.slice(bin.byteOffset, bin.byteOffset + bin.byteLength));
-    const spots = Object.values(elevMeta.spot_checks_m).map((q) => q.elev_m).filter((v) => v != null);
-    dem2.baseElev = spots.reduce((a, b) => a + b, 0) / Math.max(1, spots.length);
+    dem2.init(elevMeta, bin, elevMeta.fine ? await readFile(path.join(root, 'public/data', elevMeta.fine.binary)) : null);
     await cEl();
-    const ion = Track.fromLonLatProfile(gj.features[0].geometry.coordinates, elevMeta.track_profiles.ion, 'ION LRT', dem2.baseElev, false);
+    const design2 = JSON.parse(await readFile(path.join(root, 'public/data/track-design.json'), 'utf8')).lines;
+    const ion = Track.fromLonLatProfile(gj.features[0].geometry.coordinates, elevMeta.track_profiles.ion, 'ION LRT', dem2.baseElev, false, undefined, { design: design2.ion });
     const g2 = new gm.GroundModel(dem2);
     g2.addTrack(ion);
     let poke2 = 0;
@@ -649,12 +648,11 @@ async function main() {
   dem141.meta = meta141;
   {
     const bin = await readFile(path.join(root, 'public/data/elevation.bin'));
-    dem141.grid = new Float32Array(bin.buffer.slice(bin.byteOffset, bin.byteOffset + bin.byteLength));
-    const spots = Object.values(meta141.spot_checks_m).map((q) => q.elev_m).filter((v) => v != null);
-    dem141.baseElev = spots.reduce((a, b) => a + b, 0) / Math.max(1, spots.length);
+    dem141.init(meta141, bin, meta141.fine ? await readFile(path.join(root, 'public/data', meta141.fine.binary)) : null);
   }
   const demAt = (lon, lat) => dem141.elevLonLat(lon, lat);
   const coordsOf = async (f) => JSON.parse(await readFile(path.join(root, 'public/data', f), 'utf8')).features[0].geometry.coordinates;
+  const design141 = JSON.parse(await readFile(path.join(root, 'public/data/track-design.json'), 'utf8')).lines;
   const stations141 = JSON.parse(await readFile(path.join(root, 'public/data/stations.json'), 'utf8'));
   const platforms141 = JSON.parse(await readFile(path.join(root, 'public/data/platforms.json'), 'utf8')).platforms;
   const buildRoute = async (file, rev = false) => {
@@ -662,7 +660,9 @@ async function main() {
     if (file === 'ion-track.geojson') prof = meta141.track_profiles.ion;
     if (file.includes('spur')) prof = meta141.track_profiles.spur;
     if (file.includes('guelph')) prof = meta141.track_profiles.guelph;
-    return Track141.fromLonLatProfile(await coordsOf(file), prof, file, dem141.baseElev, rev, demAt);
+    const key = { 'ion-track.geojson': 'ion', 'ion-sb.geojson': 'sb', 'ion-nb.geojson': 'nb', 'waterloo-spur.geojson': 'spur', 'guelph-sub.geojson': 'guelph' }[file];
+    if (key === 'sb' || key === 'nb') prof = meta141.track_profiles[key];
+    return Track141.fromLonLatProfile(await coordsOf(file), prof, file, dem141.baseElev, rev, demAt, { design: design141[key] });
   };
 
   // --- o. P0: rail height follows the DEM in BOTH directions on every route -------------
@@ -675,11 +675,12 @@ async function main() {
         const d = [];
         for (let s = 0; s <= t.length; s += 10) {
           const p = t.sampleRaw(s);
+          if (t.bridgeAt(s)) continue; // designed bridge deck: the DTM is the valley/road below
           d.push(Math.abs(p.y - T141.Track.BED_ABOVE_DEM_M - dem141.heightAtLocal(p.x, p.z)));
         }
         d.sort((a, b) => a - b);
         const med = d[d.length >> 1], p95 = d[Math.floor(d.length * 0.95)], mx = d[d.length - 1];
-        assert(`o. ${f} ${tag}: rail bed vs DEM (median < 1 m, p95 < 3 m, max < 9 m)`, med < 1 && p95 < 3 && mx < 9,
+        assert(`o. ${f} ${tag}: rail bed vs DEM off bridge decks (median < 1 m, p95 < 3 m, max < 9 m)`, med < 1 && p95 < 3 && mx < 9,
           `median=${med.toFixed(2)} p95=${p95.toFixed(2)} max=${mx.toFixed(2)} m`);
       }
       // same place, opposite direction → same rail height (v1.4.0: +20 m / −17.7 m on NB)
@@ -820,7 +821,7 @@ async function main() {
     const deg = 180 / Math.PI;
     assert('s. adjacent-module roll difference < 1.5° (cant run-off, no flip at inflections)', worstRoll * deg < 1.5, `max=${(worstRoll * deg).toFixed(2)}°`);
     assert('s. adjacent-module pitch kink < 1.5° (no ±5 % sawtooth)', worstPitch * deg < 1.5, `max=${(worstPitch * deg).toFixed(2)}°`);
-    assert('s. design grade ≤ 5 %', maxGrade <= 0.05 + 1e-9, `max=${(maxGrade * 100).toFixed(2)} %`);
+    assert('s. design grade ≤ 6 % (Stage 2 EPR Table 4-2)', maxGrade <= 0.06 + 1e-9, `max=${(maxGrade * 100).toFixed(2)} %`);
     const f = AR.buildCantProfile(200, (s) => (s < 100 ? 0.1 : -0.1));
     let g = 0;
     for (let s = 1; s < 200; s++) g = Math.max(g, Math.abs(f(s) - f(s - 1)));
@@ -956,6 +957,8 @@ async function main() {
     await v147Tests(assert);
     const { v148Tests } = await import('./stress-v148.mjs');
     await v148Tests(assert);
+    const { terrainTests } = await import('./stress-terrain.mjs');
+    await terrainTests(assert);
   }
 
   const failed = results.filter((r) => !r.ok);

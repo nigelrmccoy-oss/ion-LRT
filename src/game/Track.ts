@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { lonLatToLocal, localToLonLat } from './coords';
-import type { Elevation } from './elevation';
+import type { Elevation, LineDesign } from './elevation';
 import { SPEED_LIMITS_KMH, civilSpeedLimitKmh, curveSpeedLimitKmh, type RowClass } from './Physics';
 
 export type TrackPoint = {
@@ -14,6 +14,10 @@ export type TrackPoint = {
   curvature: number; // |1/radius| (chord-smoothed over ±CURV_HALF_WINDOW_M)
   /** Signed curvature: + = curving left (toward -x of heading frame), − = right. */
   curvSigned?: number;
+  /** On a bridge deck (from the baked design profile / OSM bridge=yes). */
+  bridge?: boolean;
+  /** Inside a level station-platform span (from the baked design profile). */
+  platform?: boolean;
 };
 
 /**
@@ -81,8 +85,10 @@ export class Track {
     baseElev = 330,
     reverse = false,
     demAt?: (lon: number, lat: number) => number,
-    /** refit: ease sub-minimum curves to MIN_RADIUS_M (off for the ION reference chainage line). */
-    opts: { refit?: boolean } = {},
+    /** refit: ease sub-minimum curves to MIN_RADIUS_M (off for the ION reference chainage line).
+     *  design: baked 2 m rail design profile (bake-dem.py) — replaces the in-game smoothing so
+     *  bridge decks, level platforms and the lidar-fitted grade line are kept exactly. */
+    opts: { refit?: boolean; design?: LineDesign | null } = {},
   ) {
     let ring = coords.slice();
     let prof = profile && profile.length === coords.length ? profile.slice() : null;
@@ -101,13 +107,58 @@ export class Track {
     }
     t.recomputeChainage();
     t.densify(5);
+    const design = opts.design && opts.design.y && opts.design.y.length > 1 ? opts.design : null;
+    if (design) t.applyDesign(design, baseElev, reverse);
     if (opts.refit !== false) t.enforceMinRadius();
-    t.smoothVertical();
+    if (!design) t.smoothVertical();
     t.recomputeDerivatives();
     return t;
   }
 
-  static async fromGeoJSON(url: string, elev: Elevation, profile: number[] | undefined, name: string, reverse = false, opts: { refit?: boolean } = {}) {
+  /** On a designed bridge deck at chainage s (nearest point). */
+  bridgeAt(s: number): boolean {
+    const pts = this.points;
+    if (!this.designed || pts.length < 2) return false;
+    let lo = 0, hi = pts.length - 1;
+    while (lo + 1 < hi) {
+      const m = (lo + hi) >> 1;
+      if (pts[m].s < s) lo = m; else hi = m;
+    }
+    return !!(pts[lo].bridge && pts[hi].bridge);
+  }
+
+  /** True when heights come from a baked design profile (no in-game re-smoothing). */
+  designed = false;
+
+  /**
+   * Set rail heights from a baked design profile (2 m horizontal chainage along the geojson
+   * line in stored order). Runs right after densify, while every point still lies on the
+   * original polyline, so horizontal chainage here == the bake's chainage.
+   */
+  applyDesign(d: LineDesign, baseElev: number, reverse: boolean) {
+    const pts = this.points;
+    const n = pts.length;
+    const hs = new Float64Array(n);
+    for (let i = 1; i < n; i++) hs[i] = hs[i - 1] + Math.hypot(pts[i].x - pts[i - 1].x, pts[i].z - pts[i - 1].z);
+    const L = hs[n - 1];
+    const ys = d.y, st = d.step_m, last = ys.length - 1;
+    const at = (s: number) => {
+      const f = Math.max(0, Math.min(last, s / st));
+      const i = Math.floor(f), j = Math.min(last, i + 1);
+      return ys[i] + (ys[j] - ys[i]) * (f - i);
+    };
+    const inSpan = (s: number, spans: { s0: number; s1: number }[]) => spans.some((b) => s >= b.s0 && s <= b.s1);
+    for (let i = 0; i < n; i++) {
+      const s = reverse ? L - hs[i] : hs[i];
+      pts[i].y = at(s) - baseElev + Track.BED_ABOVE_DEM_M;
+      pts[i].bridge = inSpan(s, d.bridges);
+      pts[i].platform = inSpan(s, d.platforms);
+    }
+    this.designed = true;
+    this.recomputeChainage();
+  }
+
+  static async fromGeoJSON(url: string, elev: Elevation, profile: number[] | undefined, name: string, reverse = false, opts: { refit?: boolean; design?: LineDesign | null } = {}) {
     const gj = await (await fetch(url)).json();
     const coords: [number, number][] = gj.features[0].geometry.coordinates;
     return Track.fromLonLatProfile(coords, profile, name, elev.baseElev, reverse, (lon, lat) => elev.elevLonLat(lon, lat), opts);
@@ -169,6 +220,9 @@ export class Track {
    * take its rail height (blend out to `far`), so both tracks share one formation.
    */
   blendHeightsToward(other: Track, near = 6, far = 14, sigma = 15) {
+    // Both lines designed from the same lidar DTM: they already share the formation (to the
+    // street cross-fall), and blending would tilt level platforms and lower bridge decks.
+    if (this.designed && other.designed) return;
     const pts = this.points;
     const n = pts.length;
     const hs = new Float64Array(n);
@@ -202,8 +256,9 @@ export class Track {
     this.recomputeDerivatives();
   }
 
-  /** Realistic LRV max |grade| (~5%). DEM noise often invents 20%+ cliffs. */
-  static readonly MAX_ABS_GRADE = 0.05;
+  /** Physics/derivative clamp on |grade|. The lidar design profile peaks at ≈6.1 % (ION street
+   *  running, Kitchener); 7 % still rejects DEM-noise cliffs on undesigned lines. */
+  static readonly MAX_ABS_GRADE = 0.07;
   /** Half-window for chord curvature (m). */
   static readonly CURV_HALF_WINDOW_M = 10;
   /** Flexity Freedom min horizontal radius 25 m (Bombardier spec; Stage 2 ION EPR Table 4-2). */
