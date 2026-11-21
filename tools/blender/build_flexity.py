@@ -77,17 +77,20 @@ R_FRONT = 0.68
 FRONT_RAKE = 0.27
 FRONT_BOW = 0.11
 FRONT_TUMBLE = 0.24          # extra inward taper of the face toward the roof
-BLUE_BAND = 0.30             # faired C-band width, metres
-Y_FRONT_GLASS_TOP = Y_ROOF - 0.28
+BLUE_BAND = 0.40             # faired C-band width, metres (thick in 3/4 like 501B)
+Y_FRONT_GLASS_TOP = Y_ROOF - 0.36
 Y_PANEL_BOT = 0.80           # black lamp / number panel under the glass
 Y_PANEL_TOP = Y_BELT
 
-# Livery (linear-ish sRGB used as Base Color; JPEG/WebP tagged sRGB)
+# Livery colours are stored as sRGB. paint_livery writes them into sRGB-tagged
+# images; make_mat converts untextured Base Color to scene-linear so the glTF
+# baseColorFactor does not wash (the old #1a74c8 stuffed in as linear read as
+# a light cyan). ION royal blue is a deep #1f4fa0, not a sky cyan.
 COL_BODY = (0.902, 0.918, 0.937)       # #e6eaef
 COL_SKIRT = (0.110, 0.114, 0.125)      # #1c1d20
 COL_BAND = (0.165, 0.173, 0.192)       # #2a2c31
-COL_BLUE = (0.102, 0.455, 0.784)       # #1a74c8
-COL_BLUE_DK = (0.082, 0.373, 0.651)    # #155fa6
+COL_BLUE = (0x1F / 255.0, 0x4F / 255.0, 0xA0 / 255.0)   # #1f4fa0
+COL_BLUE_DK = (0x1A / 255.0, 0x3F / 255.0, 0x86 / 255.0)  # #1a3f86
 COL_NUMBER = (0.173, 0.200, 0.235)     # #2c333c
 
 # Side UVs live in v=0..V_SPLIT; roof island in v=V_SPLIT..1 (pure blue, no swoosh).
@@ -134,6 +137,14 @@ def reset_scene() -> None:
     scene.unit_settings.scale_length = 1.0
 
 
+def srgb_to_linear(c: float) -> float:
+    """sRGB channel in 0..1 → scene-linear (IEC 61966-2-1)."""
+    c = max(0.0, min(1.0, c))
+    if c <= 0.04045:
+        return c / 12.92
+    return ((c + 0.055) / 1.055) ** 2.4
+
+
 def make_mat(
     name: str,
     color: tuple[float, float, float],
@@ -146,7 +157,10 @@ def make_mat(
     mat.use_nodes = True
     nt = mat.node_tree
     bsdf = nt.nodes.get("Principled BSDF")
-    bsdf.inputs["Base Color"].default_value = (*color, 1.0)
+    # Principled Base Color and glTF baseColorFactor are scene-linear.
+    lin = tuple(srgb_to_linear(c) for c in color)
+    bsdf.inputs["Base Color"].default_value = (*lin, 1.0)
+    mat.diffuse_color = (*lin, 1.0)
     bsdf.inputs["Metallic"].default_value = metallic
     bsdf.inputs["Roughness"].default_value = roughness
     if alpha < 1.0:
@@ -1236,11 +1250,15 @@ def _build_cab_front(parent, front, half, mats, suffix: str) -> None:
 
     for j in range(nj - 1):
         y0, y1 = ys[j], ys[j + 1]
-        glass_strip = is_glass_y(0.5 * (y0 + y1))
+        ymid = 0.5 * (y0 + y1)
+        glass_strip = is_glass_y(ymid)
         for i in range(ni - 1):
             if glass_strip and not (is_pillar(i) or is_pillar(i + 1)):
                 continue
-            add_quad(vo[j][i], vo[j][i + 1], vo[j + 1][i + 1], vo[j + 1][i])
+            # Leave the outer skin off where the flush C-band covers, so the
+            # white shell cannot peek as slivers at the brow or A-pillar.
+            if not (is_blue(i, ymid) or is_blue(i + 1, ymid)):
+                add_quad(vo[j][i], vo[j][i + 1], vo[j + 1][i + 1], vo[j + 1][i])
             add_quad(vi[j][i + 1], vi[j][i], vi[j + 1][i], vi[j + 1][i + 1])
     for i in range(ni - 1):
         add_quad(vo[0][i + 1], vo[0][i], vi[0][i], vi[0][i + 1])
@@ -1264,8 +1282,7 @@ def _build_cab_front(parent, front, half, mats, suffix: str) -> None:
             above = is_glass_y(ys[j]) and (not is_glass_y(ys[j + 1]))
             if below:
                 add_quad(vo[j + 1][i], vo[j + 1][i + 1], vi[j + 1][i + 1], vi[j + 1][i])
-            if above:
-                add_quad(vo[j][i + 1], vo[j][i], vi[j][i], vi[j][i + 1])
+            # No white lintel at the top of the glass — the blue C meets it.
 
     shell = mesh_from_bm("cab-front-shell", bm)
     bm.free()
@@ -1449,11 +1466,13 @@ def _build_cab_front(parent, front, half, mats, suffix: str) -> None:
     rbm.free()
 
 
-    # Marker on the blue roof-edge, centre.
-    path_b = _front_plan_path(front, z_tip, y=Y_ROOF - 0.08)
+    # Marker on the front of the blue brow, not on the roof silhouette
+    # (a cylinder on the roof lip read as a notch in head-on).
+    y_mk = Y_ROOF - 0.16
+    path_b = _front_plan_path(front, z_tip, y=y_mk)
     bx, bz, bnx, bnz = min(path_b, key=lambda p: abs(p[0]))
-    mx, my, mz = _front_point(bx, bz, bnx, bnz, Y_ROOF - 0.08, front, 0.02)
-    add_cyl("brow-marker", 0.025, 0.03, mx, my, mz, "z", mats["lens"], parent, segs=10)
+    mx, my, mz = _front_point(bx, bz, bnx, bnz, y_mk, front, 0.02)
+    add_cyl("brow-marker", 0.018, 0.024, mx, my, mz, "z", mats["lens"], parent, segs=10)
 
 
 def _add_side_glass(parent, side, z, length, mats) -> None:

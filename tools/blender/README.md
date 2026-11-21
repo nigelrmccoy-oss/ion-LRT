@@ -16,10 +16,12 @@ timeout 15m flock /tmp/nigian-heavy-tests.lock \
   /usr/bin/blender -b -P tools/blender/build_flexity.py -- --out public/models/flexity.glb
 ```
 
-The mesh is original. The v5 shape pass keeps the separate swept cab front
-and adds tumblehome, a slightly bowed plan, and a wide flush blue C-band
-that grows out of the roof edge and runs down the A-pillars to the chin,
-meeting the glass with no white brow (matched to 504B head-on / 501B 3/4).
+The mesh is original. The v6 shape pass keeps the separate swept cab front
+and adds tumblehome, a slightly bowed plan, and a wide flush ION royal-blue
+(#1f4fa0) C-band that grows out of the roof edge and runs down the A-pillars
+to the chin, thick in 3/4 like 501B/504B, meeting the glass with no white
+brow (matched to 504B head-on / 501B 3/4). Untextured base colors are
+converted to scene-linear so the glTF material does not wash to cyan.
 A black lamp/number panel under the glass carries a legible 514A / 514B.
 Side glass stays tall and almost continuous, with full-height glazed plug
 doors. The blue roof is a thin cap with a defined edge. Tribute livery only
