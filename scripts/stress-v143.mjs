@@ -163,7 +163,7 @@ export async function v143Tests(assert) {
       const auto = run({ slipControl: true, autoSand: true });
       const manual = run({ slipControl: true, autoSand: false, manualSand: true });
       const fmt = (r) => `${r.dist.toFixed(0)} m, ${r.v12.toFixed(1)} km/h @12 s, slip ${r.slip.toFixed(1)} s`;
-      assert('W. repro: SB s=9535 is the ~4.5 % climb (design-grade cap)', g0 > 0.044, `grade ${(g0 * 100).toFixed(2)} %`);
+      assert('W. repro: SB s=9535 is a steep climb (≥ 3 %; was the 4.5 % SRTM design cap, now the lidar design grade)', g0 > 0.03, `grade ${(g0 * 100).toFixed(2)} %`);
       assert('W. v1.4.2 behaviour (no slip control, no sand) still stalls there — the bug', legacy.v12 < 6, fmt(legacy));
       // snow μ0 = 0.10 limits an unsanded climb of 4.5 % to a crawl (≈ 5 km/h); the point is that it moves, where v1.4.2 did not
       assert('W. creep-controlled traction, no sand at all: snow P7 start climbs (≥ 4 km/h in 12 s, no rollback; v1.4.2 stalled at 0)',

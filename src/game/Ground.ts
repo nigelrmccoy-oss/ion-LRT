@@ -178,7 +178,9 @@ export class GroundModel {
       });
     }
     // Bridge detection: long runs where formation is far above DEM
-    const high = samples.map((c) => c.form - this.dem.heightAtLocal(c.x, c.z) > BRIDGE_MIN_FILL_M);
+    // (explicit decks from the baked lidar design — OSM bridge=yes — always count: a 5 m
+    //  road overpass is under BRIDGE_MIN_FILL_M but must not be buried under an embankment)
+    const high = samples.map((c) => track.bridgeAt(c.s) || c.form - this.dem.heightAtLocal(c.x, c.z) > BRIDGE_MIN_FILL_M);
     let i = 0;
     while (i < samples.length) {
       if (!high[i]) { i++; continue; }

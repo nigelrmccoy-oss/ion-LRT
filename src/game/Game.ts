@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { Elevation } from './elevation';
+import { Elevation, type TrackDesignFile } from './elevation';
 import { Track } from './Track';
 import { TrainPhysics, type Weather, MASS_FLEXITY_KG, MASS_WCR_KG, MASS_CN_KG, AXLE_FRAC_FLEXITY, AXLE_FRAC_WCR, AXLE_FRAC_CN } from './Physics';
 import { WeatherFX } from './WeatherFX';
@@ -202,16 +202,23 @@ export class Game {
     // Reference ION centreline: ROW segments, signals and OCS data are keyed to its chainage.
     // Not rendered — trains run on the real direction-specific OSM lines below.
     // (no min-radius refit: ROW/signal/OCS chainages in the data files are keyed to it as baked)
-    const ion = await Track.fromGeoJSON('./data/ion-track.geojson', this.elev, elevMeta.track_profiles.ion, 'ION reference', false, { refit: false });
-    const ionSb = await Track.fromGeoJSON('./data/ion-sb.geojson', this.elev, undefined, 'ION LRT southbound', false);
-    const ionNb = await Track.fromGeoJSON('./data/ion-nb.geojson', this.elev, undefined, 'ION LRT northbound', false);
+    // Baked lidar rail design (bridge decks, level platforms, grade line); optional — without it
+    // the tracks fall back to the in-game smoothing of the DEM profile.
+    let design: TrackDesignFile['lines'] = {};
+    try {
+      const r = await fetch('./data/track-design.json');
+      if (r.ok) design = ((await r.json()) as TrackDesignFile).lines || {};
+    } catch { design = {}; }
+    const ion = await Track.fromGeoJSON('./data/ion-track.geojson', this.elev, elevMeta.track_profiles.ion, 'ION reference', false, { refit: false, design: design.ion });
+    const ionSb = await Track.fromGeoJSON('./data/ion-sb.geojson', this.elev, elevMeta.track_profiles.sb, 'ION LRT southbound', false, { design: design.sb });
+    const ionNb = await Track.fromGeoJSON('./data/ion-nb.geojson', this.elev, elevMeta.track_profiles.nb, 'ION LRT northbound', false, { design: design.nb });
     ionNb.blendHeightsToward(ionSb); // shared formation on double track
     for (const t of [ionSb, ionNb]) {
       t.buildRefMap(ion);
       t.rowLookup = (s, near) => this.row.at(t.refS(s), near, 0);
     }
-    const spur = await Track.fromGeoJSON('./data/waterloo-spur.geojson', this.elev, elevMeta.track_profiles.spur, 'Waterloo Spur', false);
-    const guelph = await Track.fromGeoJSON('./data/guelph-sub.geojson', this.elev, elevMeta.track_profiles.guelph, 'Guelph Sub', false);
+    const spur = await Track.fromGeoJSON('./data/waterloo-spur.geojson', this.elev, elevMeta.track_profiles.spur, 'Waterloo Spur', false, { design: design.spur });
+    const guelph = await Track.fromGeoJSON('./data/guelph-sub.geojson', this.elev, elevMeta.track_profiles.guelph, 'Guelph Sub', false, { design: design.guelph });
     this.allTracks = [ionSb, ionNb, spur, guelph];
     this.ionLines = [ionSb, ionNb];
     // Cut/fill corridors first so the heightfield is corrected before any mesh is draped
@@ -224,12 +231,15 @@ export class Game {
       'ion-sb.geojson': ionSb, 'ion-nb.geojson': ionNb, 'waterloo-spur.geojson': spur, 'guelph-sub.geojson': guelph,
     };
     let profile: number[] | undefined;
-    if (trackFile.includes('spur')) profile = elevMeta.track_profiles.spur;
-    if (trackFile.includes('guelph')) profile = elevMeta.track_profiles.guelph;
-    if (trackFile === 'ion-track.geojson') profile = elevMeta.track_profiles.ion;
+    let lineKey = '';
+    if (trackFile.includes('spur')) { profile = elevMeta.track_profiles.spur; lineKey = 'spur'; }
+    if (trackFile.includes('guelph')) { profile = elevMeta.track_profiles.guelph; lineKey = 'guelph'; }
+    if (trackFile === 'ion-track.geojson') { profile = elevMeta.track_profiles.ion; lineKey = 'ion'; }
+    if (trackFile === 'ion-sb.geojson') { profile = elevMeta.track_profiles.sb; lineKey = 'sb'; }
+    if (trackFile === 'ion-nb.geojson') { profile = elevMeta.track_profiles.nb; lineKey = 'nb'; }
     this.track = !reverse && byFile[trackFile]
       ? byFile[trackFile]
-      : await Track.fromGeoJSON(`./data/${trackFile}`, this.elev, profile, route.name, reverse);
+      : await Track.fromGeoJSON(`./data/${trackFile}`, this.elev, profile, route.name, reverse, { design: design[lineKey] });
     this.track.name = route.name.includes('ION') || trackFile.includes('ion') ? `ION ${route.name}` : route.name;
 
     if (trackFile.includes('spur')) this.activeLineKey = 'spur';

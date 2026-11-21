@@ -47,6 +47,8 @@ button:hover{filter:brightness(1.08)}
 
 #photorealCredits{position:fixed;left:8px;top:8px;z-index:30;display:flex;align-items:center;gap:6px;max-width:70vw;padding:2px 6px;border-radius:4px;background:rgba(0,0,0,.45);color:#eee;font:11px/1.3 system-ui,sans-serif;pointer-events:none}
 #photorealCredits.hidden{display:none}
+#dataCredits{position:fixed;right:6px;bottom:4px;z-index:30;padding:1px 6px;border-radius:3px;background:rgba(0,0,0,.4);color:#ddd;font:10px/1.3 system-ui,sans-serif;opacity:.85}
+#dataCredits a{color:#cde}
 #photorealCredits .credit-logo{height:16px;width:auto}
 #photorealCredits .credit-sep{margin-left:14px;opacity:.8}
 

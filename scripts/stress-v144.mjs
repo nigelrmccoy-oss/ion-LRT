@@ -208,10 +208,10 @@ export async function v144Tests(assert) {
         const fwd = W.tracks[`${r}|false`], rev = W.tracks[`${r}|true`], name = r.replace('.geojson', '');
         for (const [d, tr] of [['fwd', fwd], ['rev', rev]]) {
           const a = auditTrack(M, W, tr), c = gradeConsistency(tr);
-          assert(`G. ${name} ${d}: max grade ≤ 6 % (Stage 2 EPR Table 4-2) and ≤ the sim's 5 % cap`, a.maxGrade <= M.LRT_MAX_GRADE && a.maxGrade <= M.Track.MAX_ABS_GRADE + 1e-9, `${(a.maxGrade * 100).toFixed(2)} %`);
+          assert(`G. ${name} ${d}: max grade ≤ 6 % (Stage 2 EPR Table 4-2) and ≤ the sim's physics clamp`, a.maxGrade <= M.LRT_MAX_GRADE && a.maxGrade <= M.Track.MAX_ABS_GRADE + 1e-9, `${(a.maxGrade * 100).toFixed(2)} %`);
           assert(`G. ${name} ${d}: vertical curves ≥ Flexity minimum (crest 122 m, sag 244 m, Transit Toronto)`, a.nCrest === 0 && a.nSag === 0, `min crest ${a.minCrestR.toFixed(0)} m, min sag ${a.minSagR.toFixed(0)} m`);
           assert(`G. ${name} ${d}: no grade spikes (step ≤ 2.05 % per 5 m ⇔ vertical radius ≥ 244 m) and physics grade = rail slope (≤ 0.7 %)`, c.jump <= 5 / 244 && c.slopeGap <= 0.007, `step ${(c.jump * 100).toFixed(2)} %, slope gap ${(c.slopeGap * 100).toFixed(2)} %`);
-          assert(`G. ${name} ${d}: rail within 8 m of the SRTM ground (cut/fill = bridge or embankment, not a reversed or offset profile)`, a.cutMax > -8 && a.fillMax < 8, `cut ${a.cutMax.toFixed(1)} m / fill ${a.fillMax.toFixed(1)} m`);
+          assert(`G. ${name} ${d}: rail within 8 m of the lidar DTM ground off bridge decks (cut/fill = embankment, not a reversed or offset profile)`, a.cutMax > -8 && a.fillMax < 8, `cut ${a.cutMax.toFixed(1)} m / fill ${a.fillMax.toFixed(1)} m`);
         }
         const fr = fwdRevDelta(fwd, rev);
         assert(`G. ${name}: same ground point has the same rail height in both directions (< 0.25 m, ≥ 90 % matched)`, fr.worst < 0.25 && fr.matched >= 0.9 * fr.total, `Δ ${fr.worst.toFixed(2)} m, ${fr.matched}/${fr.total} matched`);

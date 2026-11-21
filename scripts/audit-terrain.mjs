@@ -24,7 +24,8 @@ export function auditTrack(M, W, tr) {
   const dem = ss.map((_, i) => W.dem.elevLonLat(rail[i].lon, rail[i].lat));
   const k = 3; // 3 × 5 m = ±15 m
   const demG = []; for (let i = k; i < ss.length - k; i++) demG.push(Math.abs((dem[i + k] - dem[i - k]) / (ss[i + k] - ss[i - k])));
-  const dRail = rail.map((p, i) => p.y + W.dem.baseElev - dem[i]);
+  // rail − ground, ignoring designed bridge decks (OSM bridge=yes: the DTM is the valley/road below)
+  const dRail = rail.map((p, i) => (tr.bridgeAt && tr.bridgeAt(ss[i]) ? 0 : p.y + W.dem.baseElev - dem[i]));
   // vertical radius over ±20 m (4 steps)
   const w = 4; let minCrest = Infinity, minSag = Infinity, nCrest = 0, nSag = 0;
   for (let i = w; i < ss.length - w; i++) {
@@ -35,7 +36,7 @@ export function auditTrack(M, W, tr) {
   }
   const above = (lim) => absG.filter((g) => g > lim + 1e-6).length * step; // 1e-6 = float tolerance (the cap is projected to 1e-9)
   return {
-    length: L, maxGrade: Math.max(...absG), p99Grade: pct(absG, 0.99), above45m: above(0.045), above50m: above(0.0499),
+    length: L, maxGrade: Math.max(...absG), p99Grade: pct(absG, 0.99), above45m: above(0.045), above50m: above(0.0499), above60m: above(0.06),
     demMaxGrade: Math.max(...demG), demP99: pct(demG, 0.99), demAbove6: demG.filter((g) => g > 0.06).length * step,
     cutMax: Math.min(...dRail), fillMax: Math.max(...dRail),
     minCrestR: minCrest, minSagR: minSag, nCrest, nSag,

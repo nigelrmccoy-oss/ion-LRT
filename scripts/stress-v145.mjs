@@ -197,10 +197,10 @@ export async function v145Tests(assert) {
             if (run > 0.1) geoGap = Math.max(geoGap, Math.abs(pts[i].grade - (pts[i].y - pts[i - 1].y) / run));
             worst = Math.max(worst, Math.abs(pts[i].grade));
           }
-          over += auditTrack(M, W, tr).above45m;
+          over += auditTrack(M, W, tr).above60m;
         }
       }
-      assert('R. no stored grade above the 4.5 % design cap on any route in either direction (v1.4.4: 300 m of SB at up to 4.91 %)', worst <= M.Track.DESIGN_GRADE + 1e-6 && over === 0, `max ${(worst * 100).toFixed(3)} %, ${over} m above`);
+      assert('R. no stored grade above the 6 % EPR maximum on any route in either direction (lidar design; v1.4.4: 300 m of SB above its 4.5 % cap)', worst <= M.LRT_MAX_GRADE + 1e-6 && over === 0, `max ${(worst * 100).toFixed(3)} %, ${over} m above`);
       assert('R. Track.grade is true rise/run: it equals Δy / horizontal run between points (v1.4.4 divided by the 3-D slope length = sin θ)', geoGap < 1e-9 || geoGap < 0.003, `max gap ${geoGap.toExponential(2)}`);
       const p = mk('dry'), g = 0.045, m = p.massKg * 9.81;
       assert('R. grade force uses sin θ of a rise/run grade: m·g·g/√(1+g²) (one conversion, not two)', near(p.gradeForce(g), m * g / Math.sqrt(1 + g * g), 1e-6) && near(p.gradeForce(0.2) / m, 0.2 / Math.sqrt(1.04), 1e-9));
