@@ -3,13 +3,13 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>ION LRT Simulator v1.4.8 — Waterloo Region</title>
+    <title>ION LRT Simulator v1.4.9 — Waterloo Region</title>
     <link rel="stylesheet" href="/src/style.css" />
   </head>
   <body>
     <div id="app">
       <div id="menu" class="panel">
-        <h1>ION LRT Simulator <span class="ver">v1.4.8</span></h1>
+        <h1>ION LRT Simulator <span class="ver">v1.4.9</span></h1>
         <p class="sub">Waterloo Region · GrandLinq / Keolis / GRT tribute · browser cab sim</p>
         <label>Route
           <select id="route">
@@ -46,6 +46,7 @@
             <li><b>R</b> → Forward (N→F→R) · <b>T</b> doors closed · <b>W</b> power</li>
             <li>S brake · Shift sand · P pantograph · Space horn · C camera</li>
             <li>H headlights on/off (auto at dusk/night) · V side camera auto/left/right</li>
+            <li>U driver display on/off · E traction-power panel on/off (stick-click on a pad)</li>
             <li>Click canvas for mouse look · Xbox / standard pad supported · Esc (or Menu) unlocks pointer, again = menu</li>
             <li>Street ROW: stop for red traffic signals (TSP)</li>
           </ul>
@@ -53,27 +54,71 @@
       </div>
       <div id="hud" class="hidden">
         <canvas id="minimap" width="180" height="140" aria-label="Route minimap"></canvas>
-        <div id="speedo"><span id="speedVal">0</span><small>km/h</small></div>
-        <div id="notches">P<span id="powerVal">0</span> B<span id="brakeVal">0</span></div>
-        <div id="next">Next: <span id="nextStation">—</span></div>
-        <div id="status">
-          <span id="doors">Doors closed</span> ·
-          <span id="panto">Panto up</span> ·
-          <span id="reverser">N</span> ·
-          <span id="voltage">750 V</span>
-          <span id="slip" class="lamp off">SLIP</span>
-          <span id="sand" class="lamp off">SAND</span>
-          <span id="lights">Lights</span>
-          <span id="sideCam"></span>
-          <span id="vigVal">Vig 45s</span>
+        <div id="tcms" class="cab-panel">
+          <div class="tcms-head">
+            <span class="tcms-title">TCMS</span>
+            <span id="atpMode" class="atp-mode mode-los">LOS</span>
+            <span id="clock">12:00:00</span>
+          </div>
+          <div class="tcms-speed-row">
+            <div id="speedo"><span id="speedVal">0</span><small>km/h</small></div>
+            <div class="tcms-limit">Limit <span id="limitVal">70</span><span class="sr-hidden" id="tcmsLimit">70</span></div>
+            <div class="tcms-signal">
+              <span id="signalLamp" class="signal-lamp aspect-none" aria-hidden="true"></span>
+              <div>
+                <div>Signal <span id="signalVal">—</span></div>
+                <div class="muted" id="signalDist">—</div>
+              </div>
+            </div>
+          </div>
+          <div id="next" class="tcms-next">Next: <span id="nextStation">—</span><span class="sr-hidden" id="tcmsNext"></span></div>
+          <div id="notches" class="tcms-notches">P<span id="powerVal">0</span> B<span id="brakeVal">0</span> · <span id="reverser">N</span></div>
+          <div id="status" class="tcms-status">
+            <span id="doors" class="doors closed">Doors closed</span>
+            <span id="panto" class="panto up">Panto up</span>
+            <span id="voltage">750 V</span>
+            <span id="slip" class="lamp off">SLIP</span>
+            <span id="sand" class="lamp off">SAND</span>
+            <span id="hornLamp" class="lamp off">HORN</span>
+            <span id="lights">Lights auto</span>
+            <span id="sideCam"></span>
+            <span id="vigVal" class="vig ok">Vig 45s</span>
+          </div>
+          <div id="block" class="hidden"><span id="blockVal"></span></div>
+          <div class="tcms-meta">
+            <span id="rowHud">ROW <span id="rowVal">Reserved</span></span>
+            <span id="weatherHud">Wx <span id="weatherVal">Dry</span></span>
+            <span id="ionHud">Terrain <span id="ionVal">OSM / DEM</span></span>
+          </div>
         </div>
-        <div id="block" class="hidden"><span id="blockVal"></span></div>
-        <div id="clock">12:00</div>
-        <div id="limit">Limit <span id="limitVal">70</span></div>
-        <div id="rowHud">ROW <span id="rowVal">Reserved</span></div>
-        <div id="signalHud">Signal <span id="signalVal">—</span></div>
-        <div id="weatherHud">Weather <span id="weatherVal">Dry</span></div>
-        <div id="ionHud">Terrain <span id="ionVal">OSM / DEM</span></div>
+        <div id="elecPanel" class="cab-panel elec">
+          <div class="tcms-head">
+            <span class="tcms-title">Traction power</span>
+            <span class="muted">750 V DC</span>
+          </div>
+          <div class="elec-vrow">
+            <span id="elecVoltage" class="elec-voltage band-nominal">750 V</span>
+            <span id="elecBand" class="muted">750 V nominal</span>
+          </div>
+          <div class="elec-bar" aria-hidden="true">
+            <span class="elec-tick t500" title="500 V"></span>
+            <span class="elec-tick t750" title="750 V"></span>
+            <span class="elec-tick t900" title="900 V"></span>
+            <span class="elec-tick t1000" title="1000 V"></span>
+            <span id="elecBarFill" class="elec-bar-fill band-nominal" style="width:54%"></span>
+          </div>
+          <div class="elec-grid">
+            <div>Current <span id="elecCurrent">+0 A</span></div>
+            <div>Power <span id="elecPower" class="elec-power idle">+0 kW</span></div>
+            <div>Aux <span id="elecAux">40 kW est.</span></div>
+            <div id="elecDump" class="elec-dump"></div>
+            <div class="wide">Pantograph / section</div>
+            <div class="wide" id="elecSection">—</div>
+            <div class="wide">Nearest substation</div>
+            <div class="wide" id="elecTpss">—</div>
+            <div class="wide muted" id="elecTpssNote"></div>
+          </div>
+        </div>
       </div>
       <div id="endReport" class="panel hidden"></div>
       <div id="windshield"></div>

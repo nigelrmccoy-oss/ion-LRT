@@ -1,0 +1,211 @@
+{
+  "version": 0.6,
+  "generator": "Overpass API 0.7.62.11 87bfad18",
+  "osm3s": {
+    "timestamp_osm_base": "2026-11-20T21:15:19Z",
+    "copyright": "The data included in this document is from www.openstreetmap.org. The data is made available under ODbL."
+  },
+  "elements": [
+    {
+      "type": "way",
+      "id": 602291969,
+      "center": {
+        "lat": 43.4663012,
+        "lon": -80.5316028
+      },
+      "tags": {
+        "barrier": "fence",
+        "fence_type": "chain_link",
+        "landuse": "industrial",
+        "power": "substation",
+        "substation": "traction"
+      }
+    },
+    {
+      "type": "way",
+      "id": 878420648,
+      "center": {
+        "lat": 43.4975976,
+        "lon": -80.5431889
+      },
+      "tags": {
+        "barrier": "fence",
+        "operator": "Grand River Transit",
+        "power": "substation",
+        "substation": "traction",
+        "voltage": "13800;750"
+      }
+    },
+    {
+      "type": "way",
+      "id": 878420649,
+      "center": {
+        "lat": 43.4976032,
+        "lon": -80.5431906
+      },
+      "tags": {
+        "building": "service",
+        "location": "indoor",
+        "power": "substation",
+        "substation": "traction"
+      }
+    },
+    {
+      "type": "way",
+      "id": 881139599,
+      "center": {
+        "lat": 43.4987525,
+        "lon": -80.5296292
+      },
+      "tags": {
+        "building": "service",
+        "location": "indoor",
+        "power": "substation",
+        "substation": "traction"
+      }
+    },
+    {
+      "type": "way",
+      "id": 883462122,
+      "center": {
+        "lat": 43.4763388,
+        "lon": -80.5433642
+      },
+      "tags": {
+        "barrier": "fence",
+        "fence_type": "metal",
+        "operator": "Grand River Transit",
+        "power": "substation",
+        "substation": "traction",
+        "voltage": "13800;750"
+      }
+    },
+    {
+      "type": "way",
+      "id": 886576473,
+      "center": {
+        "lat": 43.4957897,
+        "lon": -80.5421354
+      },
+      "tags": {
+        "building": "service",
+        "location": "indoor",
+        "power": "substation",
+        "substation": "traction"
+      }
+    },
+    {
+      "type": "way",
+      "id": 1265693919,
+      "center": {
+        "lat": 43.4463326,
+        "lon": -80.4830793
+      },
+      "tags": {
+        "building": "service",
+        "operator": "Grand River Transit",
+        "power": "substation",
+        "substation": "traction",
+        "voltage": "13800;750"
+      }
+    },
+    {
+      "type": "way",
+      "id": 1524238448,
+      "center": {
+        "lat": 43.4857754,
+        "lon": -80.5448289
+      },
+      "tags": {
+        "operator": "Grand River Transit",
+        "power": "substation",
+        "substation": "traction",
+        "voltage": "13800;750"
+      }
+    },
+    {
+      "type": "way",
+      "id": 1524238647,
+      "center": {
+        "lat": 43.4988108,
+        "lon": -80.5296633
+      },
+      "tags": {
+        "operator": "Grand River Transit",
+        "power": "substation",
+        "substation": "traction",
+        "voltage": "13800;750"
+      }
+    },
+    {
+      "type": "way",
+      "id": 1524238950,
+      "center": {
+        "lat": 43.4422227,
+        "lon": -80.4756406
+      },
+      "tags": {
+        "operator": "Grand River Transit",
+        "power": "substation",
+        "substation": "traction",
+        "voltage": "13800;750"
+      }
+    },
+    {
+      "type": "way",
+      "id": 1524238951,
+      "center": {
+        "lat": 43.4295126,
+        "lon": -80.4728731
+      },
+      "tags": {
+        "operator": "Grand River Transit",
+        "power": "substation",
+        "substation": "traction",
+        "voltage": "13800;750"
+      }
+    },
+    {
+      "type": "way",
+      "id": 1524238952,
+      "center": {
+        "lat": 43.421963,
+        "lon": -80.4436022
+      },
+      "tags": {
+        "operator": "Grand River Transit",
+        "power": "substation",
+        "substation": "traction",
+        "voltage": "13800;750"
+      }
+    },
+    {
+      "type": "way",
+      "id": 1524238953,
+      "center": {
+        "lat": 43.4218942,
+        "lon": -80.4622701
+      },
+      "tags": {
+        "operator": "Grand River Transit",
+        "power": "substation",
+        "substation": "traction",
+        "voltage": "13800;750"
+      }
+    },
+    {
+      "type": "way",
+      "id": 1557992536,
+      "center": {
+        "lat": 43.4567084,
+        "lon": -80.5094134
+      },
+      "tags": {
+        "area": "yes",
+        "building": "yes",
+        "power": "substation",
+        "substation": "traction"
+      }
+    }
+  ]
+}
