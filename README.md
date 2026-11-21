@@ -1,8 +1,15 @@
-# ION LRT Simulator **v1.4.7**
+# ION LRT Simulator **v1.4.8**
 
 Playable browser / Electron cab simulator of the Waterloo Region **ION LRT** (GrandLinq / Keolis / GRT tribute), plus the **CN Waterloo Spur / WCR to Elmira** and **Kitchener–Guelph** heavy-rail routes.
 
 Built with **Vite + TypeScript + Three.js**. No Blender/Unity. No backend.
+
+## What’s new in v1.4.8 (tribute Flexity Freedom mesh)
+
+- **Procedural 5-module Flexity Freedom** with a curved shell: lofted raked cab noses, rounded roof shoulders, smooth skirts, roof equipment fairings, ribbed bellows and bogie skirts. Same A–E split, door / destSign / pantograph / lamp hooks and Clearances dimensions as before, so articulation and lighting keep working.
+- **Tribute livery** painted on a canvas texture from the CC0 ION service-livery photos (unit 514 side-on, 507 at Queen): off-white metallic body, charcoal skirt, blue roof band and a blue A-pillar swoosh tapering to the nose, fleet number 514A / 514B on the cab sides. No ION, GRT or Region of Waterloo logos or wordmarks.
+- The shape language borrows from the Gold Coast Flexity 2 (curved raked nose, rounded shoulders) as a visual reference only — the mesh is original and is not a copy of any third-party model.
+- Physics is unchanged from v1.4.7 / v1.4.6. Headless mesh checks in `scripts/stress-v148.mjs`.
 
 ## What’s new in v1.4.7 (Xbox / gamepad + smoothed physics)
 
@@ -199,7 +206,7 @@ Map / scenery data © OpenStreetMap contributors (ODbL). **No Google Street View
 
 ## Vehicle notes
 
-ION: articulated 5-module Flexity Freedom (30.8 m × 2.65 m × 3.6 m, Bo′2Bo′) with procedural brushed/PBR tribute livery (no official logos). Module and truck positions are in `src/game/Clearances.ts` and the kinematics in `src/game/Articulation.ts`. Fan tribute; not GRT/GrandLinq art.
+ION: articulated 5-module Flexity Freedom (30.8 m × 2.65 m × 3.6 m, Bo′2Bo′) with a curved procedural shell and painted tribute livery (no official logos). Module and truck positions are in `src/game/Clearances.ts` and the kinematics in `src/game/Articulation.ts`. Fan tribute; not GRT/GrandLinq art.
 
 ## Tests & build
 

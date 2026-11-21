@@ -152,17 +152,20 @@ export class TrainLights {
     const a = lrv.modules[0], e = lrv.modules[lrv.modules.length - 1];
     const lenA = MODULES[0].len, lenE = MODULES[MODULES.length - 1].len;
     const noseA = lenA / 2 + 0.01, noseE = -(lenE / 2 + 0.01);
-    const yLamp = LRV_FLOOR_ATR_M + 0.45;
-    const L = new TrainLights(a, new THREE.Vector3(0, yLamp, noseA + 0.1), new THREE.Vector3(0, 0, noseA + 35));
-    // the cab nose is a flattened half-cylinder (Vehicles: radius w·0.49, depth 1.2 m):
-    // put each lamp on its surface, not in front of the tip
-    const noseDepth = 1.2, r = LRV_WIDTH_M * 0.49;
-    const onNose = (x: number) => noseDepth * Math.sqrt(Math.max(0, 1 - (x / r) ** 2)) - noseDepth + 0.01;
-    for (const x of [-0.78, 0.78]) {
-      L.head.push(makeLamp(a, x, yLamp, noseA + onNose(x), 0xfff6e8, 0.12, 1.1));
-      const t = makeLamp(e, x, yLamp, noseE - onNose(x), 0xff1a10, 0.09, 0.7);
-      t.mesh.rotation.y = Math.PI;
-      L.tail.push(t);
+    const posOf = (mod: THREE.Object3D, name: string, fb: THREE.Vector3) =>
+      (mod.getObjectByName(name)?.position.clone() ?? fb);
+    const hL = posOf(a, 'lampAnchor-head-L', new THREE.Vector3(-0.84, 0.70, noseA - 0.16));
+    const hR = posOf(a, 'lampAnchor-head-R', new THREE.Vector3(0.84, 0.70, noseA - 0.16));
+    const mid = hL.clone().add(hR).multiplyScalar(0.5);
+    const L = new TrainLights(a, new THREE.Vector3(mid.x, mid.y, mid.z + 0.08), new THREE.Vector3(0, mid.y - 0.4, noseA + 35));
+    L.head.push(makeLamp(a, hL.x, hL.y, hL.z, 0xfff6e8, 0.12, 1.1));
+    L.head.push(makeLamp(a, hR.x, hR.y, hR.z, 0xfff6e8, 0.12, 1.1));
+    const tL = posOf(e, 'lampAnchor-tail-L', new THREE.Vector3(-0.84, 0.70, noseE + 0.16));
+    const tR = posOf(e, 'lampAnchor-tail-R', new THREE.Vector3(0.84, 0.70, noseE + 0.16));
+    for (const pnt of [tL, tR]) {
+      const tLamp = makeLamp(e, pnt.x, pnt.y, pnt.z, 0xff1a10, 0.09, 0.7);
+      tLamp.mesh.rotation.y = Math.PI;
+      L.tail.push(tLamp);
     }
     // light pool on the track ahead (projected decal, no extra light)
     const pool = new THREE.Mesh(

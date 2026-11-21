@@ -1,4 +1,4 @@
-# ION LRT Sim — wheel–rail physics and terrain (v1.4.7)
+# ION LRT Sim — wheel–rail physics and terrain (v1.4.8)
 
 All constants live in [`src/game/Physics.ts`](../src/game/Physics.ts) (vehicle/rail) and [`src/game/Track.ts`](../src/game/Track.ts) (profile). Status key as in [CLEARANCES.md](CLEARANCES.md): **Sourced** = read in the cited document, **Sibling** = published for another Flexity model, **ESTIMATE** = no public source; reasonable engineering value.
 
