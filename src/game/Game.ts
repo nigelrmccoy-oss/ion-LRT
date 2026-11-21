@@ -5,6 +5,7 @@ import { TrainPhysics, type Weather, MASS_FLEXITY_KG, MASS_WCR_KG, MASS_CN_KG, A
 import { WeatherFX } from './WeatherFX';
 import { Input } from './Input';
 import { AudioEngine } from './AudioEngine';
+import { DoorCycle } from './DoorCycle';
 import { createFlexityArticulatedAsync, createDieselConsist, type ArticulatedLRV } from './Vehicles';
 import { poseConsist, superelevationFor, buildCantProfile, type ConsistPose } from './Articulation';
 import { TRUCK_FROM_NOSE_M, LRV_LENGTH_M, LRV_FLOOR_ATR_M } from './Clearances';
@@ -50,6 +51,7 @@ export class Game {
   physics!: TrainPhysics;
   input: Input;
   audio = new AudioEngine();
+  doors = new DoorCycle();
   terrain!: TerrainSystem;
   stations = new StationSystem();
   row = new RowClassifier();
@@ -264,7 +266,9 @@ export class Game {
     });
     // Start Neutral (safe); R advances N→F→R. Doors closed, panto up, voltage OK.
     this.physics.reverser = 0;
+    this.doors.resetClosed();
     this.physics.doorsOpen = false;
+    this.physics.doorPhase = 'closed';
     this.physics.pantographUp = electric;
     this.physics.lineVoltage = 750;
     this.physics.resetVigilance();
@@ -443,17 +447,20 @@ export class Game {
       if (this.physics.reverser === 1) this.dwellUntil = 0;
     }
     if (code === 'KeyT') {
-      if (this.physics.doorsOpen) {
-        // closing is always allowed (the hold brake keeps the car stopped meanwhile)
-        this.physics.doorsOpen = false;
-        this.audio.doorClose();
-        this.setDoorsVisual(false);
-      } else if (Math.abs(this.physics.speed) < 0.3) {
+      if (this.doors.canClose) {
+        // Full (departure) close: chime first, then the plug doors travel, then the
+        // lock drops. Traction stays interlocked until close-locked.
+        this.doors.startClose();
         this.physics.doorsOpen = true;
+        this.physics.doorPhase = 'closing';
+        this.audio.doorClose();
+      } else if (this.doors.canOpen && Math.abs(this.physics.speed) < 0.3) {
+        this.doors.startOpen();
+        this.physics.doorsOpen = true;
+        this.physics.doorPhase = 'opening';
         this.physics.powerNotch = 0;
         this.physics.holdBrake = true;
         this.audio.doorOpen();
-        this.setDoorsVisual(true);
       }
       this.physics.resetVigilance();
     }
@@ -500,9 +507,10 @@ export class Game {
     return st?.platformSide ?? 1;
   }
 
-  /** Animate the plug doors: slide open on the platform side only. */
-  private setDoorsVisual(open: boolean) {
+  /** Slide the platform-side plug doors. `open` is 0 (closed) … 1 (open). */
+  private setDoorsVisual(open: boolean | number) {
     if (!this.lrv) return;
+    const amt = typeof open === 'number' ? open : (open ? 1 : 0);
     const side = this.doorSide();
     // vehicle "left" in module space is +x (forward = +z); right of travel = −x
     const sideX = side > 0 ? -1 : 1;
@@ -510,11 +518,40 @@ export class Game {
       m.traverse((o) => {
         if (o.name !== 'door') return;
         const u = o.userData as { side: number; baseX: number; baseZ: number };
-        const isOpen = open && u.side === sideX;
-        o.position.x = u.baseX + (isOpen ? u.side * 0.09 : 0);
-        o.position.z = u.baseZ + (isOpen ? 0.72 : 0);
+        const k = u.side === sideX ? amt : 0;
+        o.position.x = u.baseX + u.side * 0.09 * k;
+        o.position.z = u.baseZ + 0.72 * k;
       });
     }
+  }
+
+  /** Mid-consist platform-side door, used as the 3D audio anchor. */
+  private doorAnchor(): { x: number; y: number; z: number } | undefined {
+    if (!this.lrv) return undefined;
+    const side = this.doorSide();
+    const sideX = side > 0 ? -1 : 1;
+    const mid = this.lrv.modules[2] ?? this.lrv.modules[0];
+    mid.updateMatrixWorld();
+    const found: THREE.Vector3[] = [];
+    mid.traverse((o) => {
+      if (o.name !== 'door') return;
+      const u = o.userData as { side?: number };
+      if (u.side !== sideX) return;
+      const v = new THREE.Vector3();
+      o.getWorldPosition(v);
+      found.push(v);
+    });
+    if (!found.length) return undefined;
+    const acc = found.reduce((a, v) => a.add(v), new THREE.Vector3());
+    acc.multiplyScalar(1 / found.length);
+    return { x: acc.x, y: acc.y, z: acc.z };
+  }
+
+  private syncDoorCycle(dt: number) {
+    this.doors.tick(dt);
+    this.physics.doorsOpen = this.doors.interlocked;
+    this.physics.doorPhase = this.doors.phase;
+    this.setDoorsVisual(this.doors.visualOpen);
   }
 
   private ionLines: Track[] = [];
@@ -622,6 +659,7 @@ export class Game {
 
     if (this.physics.speedKmh() > limit + 2) this.stats.overspeed += dt;
     if (this.physics.wheelslip) this.stats.wheelslip += dt;
+    this.syncDoorCycle(dt);
     this.audio.setWheelslip(this.physics.wheelslip);
     this.audio.setMotor(this.physics.speed, this.physics.powerNotch);
     this.audio.setCurveNoise(this.physics.speed, sample.curvature);
@@ -637,6 +675,11 @@ export class Game {
     }
 
     this.updateCamera(p);
+    {
+      const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(this.camera.quaternion);
+      const up = new THREE.Vector3(0, 1, 0).applyQuaternion(this.camera.quaternion);
+      this.audio.setListener(this.camMode, this.camera.position, fwd, up, this.doorAnchor());
+    }
     this.photoreal.update(this.camera, this.renderer, p);
     this.terrain.update(p.x, p.z, this.allTracks);
     this.sun.position.set(p.x + 60, p.y + 100, p.z + 30);
@@ -759,7 +802,7 @@ export class Game {
     if (ahead) {
       signalDist = dir > 0 ? ahead.s_ion - this.s : this.s - ahead.s_ion;
     }
-    const doorSide = this.physics.doorsOpen ? (this.doorSide() < 0 ? 'L' : 'R') : '';
+    const doorSide = this.doors.phase !== 'closed' ? (this.doorSide() < 0 ? 'L' : 'R') : '';
     const refSNow = this.ionForwardS();
     const inStreet =
       this.activeLineKey === 'ion' &&
@@ -783,6 +826,7 @@ export class Game {
       etaLabel: eta != null ? formatEta(eta) : '',
       doorsOpen: p.doorsOpen,
       doorSide: doorSide as 'L' | 'R' | '',
+      doorPhase: this.doors.phase,
       reverser: reverserLabel(p.reverser),
       powerNotch: p.powerNotch,
       brakeNotch: p.brakeNotch,

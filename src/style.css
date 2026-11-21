@@ -85,6 +85,8 @@ button:hover{filter:brightness(1.08)}
 .tcms-status{display:flex;flex-wrap:wrap;gap:.35rem .7rem;margin-top:.35rem;font-size:.82rem;align-items:center}
 .tcms-meta{display:flex;flex-wrap:wrap;gap:.4rem 1rem;margin-top:.3rem;font-size:.78rem;opacity:.8}
 .doors.open{color:#ffbf2a;font-weight:700}
+.doors.closing{color:#ff6a2a;font-weight:700;animation:doorsBlink .5s steps(2) infinite}
+@keyframes doorsBlink{50%{opacity:.35}}
 .panto.down{color:#ffbf2a}
 .lamp{display:inline-block;padding:.05rem .35rem;border-radius:3px;border:1px solid #444;opacity:.45;font-size:.72rem;letter-spacing:.06em}
 .lamp.on{opacity:1;background:#3a2200;border-color:#ffbf2a;color:#ffbf2a}

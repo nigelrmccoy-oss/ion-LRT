@@ -23,6 +23,8 @@ export type CabHudState = {
   etaLabel: string;
   doorsOpen: boolean;
   doorSide: 'L' | 'R' | '';
+  /** Door cycle phase (DoorCycle); 'closing' shows the chime-warning text. */
+  doorPhase?: 'closed' | 'opening' | 'open' | 'closing';
   reverser: string;
   powerNotch: number;
   brakeNotch: number;
@@ -100,11 +102,14 @@ export function renderCabHud(els: CabHudEls, s: CabHudState) {
   setText(els.nextStation, next);
   setText(els.tcmsNext, next);
 
-  const doorTxt = s.doorsOpen
-    ? `Doors OPEN ${s.doorSide === 'L' ? 'LEFT' : s.doorSide === 'R' ? 'RIGHT' : ''}`.trim()
-    : 'Doors closed';
+  const side = s.doorSide === 'L' ? 'LEFT' : s.doorSide === 'R' ? 'RIGHT' : '';
+  const phase = s.doorPhase ?? (s.doorsOpen ? 'open' : 'closed');
+  const doorTxt = phase === 'closing' ? `Doors closing ${side}`.trim()
+    : phase === 'opening' ? `Doors opening ${side}`.trim()
+      : phase === 'open' || s.doorsOpen ? `Doors OPEN ${side}`.trim()
+        : 'Doors closed';
   setText(els.doors, doorTxt);
-  setClass(els.doors, 'doors ' + (s.doorsOpen ? 'open' : 'closed'));
+  setClass(els.doors, 'doors ' + (phase === 'closing' ? 'closing' : phase === 'closed' && !s.doorsOpen ? 'closed' : 'open'));
 
   setText(els.reverser, s.reverser);
   setText(els.powerVal, String(s.powerNotch));

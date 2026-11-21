@@ -111,6 +111,7 @@ Every constant below has a source comment in `src/game/Physics.ts`; the table wi
 - Skippable **controls tutorial** (menu checkbox).
 - Optional **Cesium Ion** aerial imagery for KW via `VITE_CESIUM_ION_TOKEN` (fallback to OSM/DEM colours).
 - Audio: inverter whine vs load; flange / wheel roar on curves.
+- **Door SFX**: TTC / ION-style G–E–C close chime (tribute synthesis, not a recording) with a plug-door slide, seating thud and lock click. A single G opens the doors. Traction stays interlocked until the close lock drops. Details and sources: [`docs/DOOR-SFX.md`](docs/DOOR-SFX.md). Rebuild listen-files with `node tools/audio/build_door_sfx.mjs`.
 - **Minimap** + next-station name with distance and ETA.
 - Less boxy Flexity (rounded noses, roof curve, procedural PBR tribute textures — no Street View / Apple Maps).
 - Electron: application menu removed so cab keys are not stolen.
