@@ -373,7 +373,7 @@ function wireFlexityHooks(root: THREE.Object3D) {
   root.traverse((o) => {
     // Only the plug-door empties (door-A-L, door-M-R.001, …), not merged
     // child meshes named door-A-L-lrvGlass / door-A-L-trim.
-    if (o.name === 'door' || /^door-[AEM]-[LR](?:\.\d+)?$/.test(o.name)) {
+    if (o.name === 'door' || /^door-[ABDEM]-[LR](?:\.?\d+)?$/.test(o.name)) {
       o.name = 'door';
       o.userData.side = o.position.x >= 0 ? 1 : -1;
       o.userData.baseX = o.position.x;

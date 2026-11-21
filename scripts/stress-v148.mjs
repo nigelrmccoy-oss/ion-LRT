@@ -152,7 +152,7 @@ export async function v148Tests(assert) {
       'lampAnchor-head-L', 'lampAnchor-head-R', 'lampAnchor-tail-L', 'lampAnchor-tail-R',
     ];
     const missing = required.filter((n) => !glbNames.includes(n));
-    const doors = glbNames.filter((n) => /^door-[AEM]-[LR](?:\.\d+)?$/.test(n));
+    const doors = glbNames.filter((n) => /^door-[ABDEM]-[LR](?:\.?\d+)?$/.test(n));
     assert('v148. flexity.glb exists and is a GLB', magic === 'glTF' && jsonType === 'JSON');
     assert('v148. flexity.glb is under 3 MB', glbSize > 50_000 && glbSize < 3_000_000, `size=${glbSize}`);
     assert('v148. flexity.glb has A–E module roots, trucks, and light/panto hooks',

@@ -62,6 +62,19 @@ R_SHOULDER = 0.28
 R_BOTTOM = 0.10
 TUMBLE = 0.08
 
+# Side proportions from the 514 side photo and the v4 brief: the white belt is
+# about the lower 40% of the body side, the skirt is a thin black line, and
+# the glass runs from the belt to just under a thin blue roof cap.
+Y_SKIRT = 0.30
+Y_BELT = 1.46
+Y_WIN_TOP = Y_ROOF - 0.12
+Y_WIN_MID = 0.5 * (Y_BELT + Y_WIN_TOP)
+Y_WIN_H = Y_WIN_TOP - Y_BELT
+PILLAR = 0.11
+# Cab front: nearly vertical, slight rake, large-radius wraparound corners.
+R_FRONT = 0.62
+FRONT_RAKE = 0.27
+
 # Livery (linear-ish sRGB used as Base Color; JPEG/WebP tagged sRGB)
 COL_BODY = (0.902, 0.918, 0.937)       # #e6eaef
 COL_SKIRT = (0.110, 0.114, 0.125)      # #1c1d20
@@ -541,51 +554,26 @@ def paint_livery(kind: str, w: int = 2048, h: int = 1024) -> bpy.types.Image:
         _fill_rect(px, w, h, 0, y, w, y + 1, c)
 
     side_h = int(V_SPLIT * h)
-    # Thin charcoal skirt only — the window band is real glass, not a painted stripe.
-    _fill_rect(px, w, h, 0, 0, w, int(0.07 * side_h), COL_SKIRT)
-    _fill_rect(px, w, h, 0, int(0.07 * side_h), w, int(0.085 * side_h), COL_BAND)
-    # Thin belt-line under the windows
-    _fill_rect(px, w, h, 0, int(0.455 * side_h), w, int(0.470 * side_h), COL_BAND)
-    # Thin blue roof lip at the top of the side island
-    _fill_rect(px, w, h, 0, int(0.92 * side_h), w, side_h, COL_BLUE)
-    _fill_rect(px, w, h, 0, int(0.915 * side_h), w, int(0.925 * side_h), COL_BLUE_DK)
-    # Roof island: solid blue, no swoosh
+    # Very thin charcoal skirt — the window band is real glass.
+    skirt_v = (Y_SKIRT - Y_BOT) / max(1e-6, Y_ROOF - Y_BOT)
+    _fill_rect(px, w, h, 0, 0, w, int(skirt_v * side_h), COL_SKIRT)
+    # Thin blue roof lip only, so the cap reads as a defined edge, not a thick band.
+    _fill_rect(px, w, h, 0, int(0.955 * side_h), w, side_h, COL_BLUE)
+    _fill_rect(px, w, h, 0, int(0.950 * side_h), w, int(0.960 * side_h), COL_BLUE_DK)
+    # Roof island: solid blue, no swoosh (the A-pillar band is 3D, on the side).
     _fill_rect(px, w, h, 0, side_h, w, h, COL_BLUE)
 
     if kind in ("cabA", "cabE"):
-        spine = [
-            (0.50, 0.90, 0.055),
-            (0.60, 0.88, 0.050),
-            (0.68, 0.82, 0.045),
-            (0.73, 0.78, 0.032),
-            (0.745, 0.76, 0.008),
-        ]
-        pts_c, rads = [], []
-        for u, vs, hw in spine:
-            vs = min(vs, 0.90)
-            pts_c.append((u * w, vs * side_h))
-            rads.append(hw * side_h)
-        for i in range(len(pts_c) - 1):
-            x0, y0 = pts_c[i]
-            x1, y1 = pts_c[i + 1]
-            r0, r1 = rads[i], rads[i + 1]
-            steps = max(8, int(math.hypot(x1 - x0, y1 - y0)))
-            for k in range(steps):
-                t = k / steps
-                _stamp_disk(px, w, h,
-                            x0 + (x1 - x0) * t,
-                            y0 + (y1 - y0) * t,
-                            r0 + (r1 - r0) * t,
-                            COL_BLUE)
         suffix = "A" if kind == "cabA" else "B"
-        _draw_text(px, w, h, f"{FLEET_NO}{suffix}", 0.55, 0.28 * V_SPLIT, 9, COL_NUMBER)
+        # Fleet number on the cab side, in the white belt.
+        belt_v = (0.5 * (Y_SKIRT + Y_BELT) - Y_BOT) / max(1e-6, Y_ROOF - Y_BOT)
+        _draw_text(px, w, h, f"{FLEET_NO}{suffix}", 0.55, belt_v * V_SPLIT, 9, COL_NUMBER)
 
     img = bpy.data.images.new(f"livery-{kind}", width=w, height=h, alpha=False)
     img.colorspace_settings.name = "sRGB"
     img.pixels.foreach_set(px)
     img.pack()
     return img
-
 
 def paint_door(w: int = 256, h: int = 512) -> bpy.types.Image:
     # Black plug-door skin; the two glass panes are real geometry.
@@ -640,7 +628,7 @@ def extract_faces_as_glass(bm: bmesh.types.BMesh, faces: list, bulge: float = 0.
     # Inset to leave a frame on the body, then copy the inner faces.
     try:
         ret = bmesh.ops.inset_region(
-            bm, faces=faces, thickness=0.045, depth=0.0, use_boundary=True, use_even_offset=True,
+            bm, faces=faces, thickness=0.016, depth=0.0, use_boundary=True, use_even_offset=True,
         )
         inner = list(ret.get("faces") or faces)
     except Exception:
@@ -1006,6 +994,364 @@ def cab_nose_stations(front: int, half_len: float, nose_len: float, u_at):
     return rings, z_joint
 
 
+def _front_plan_path(front: float, z_tip: float, n_corner: int = 12, n_front: int = 10):
+    """Plan path from the left A-pillar around the front to the right.
+
+    Each item is (x, z, nx, nz) in Three.js, with *outward* horizontal normals.
+    """
+    r = R_FRONT
+    z_c = z_tip - front * r
+    cx_l, cx_r = -(HALF_W - r), (HALF_W - r)
+    pts: list[tuple[float, float, float, float]] = []
+
+    def add(x, z, nx, nz):
+        nlen = math.hypot(nx, nz) or 1.0
+        pts.append((x, z, nx / nlen, nz / nlen))
+
+    add(-HALF_W, z_c - front * 0.05, -1.0, 0.0)
+    add(-HALF_W, z_c, -1.0, 0.0)
+    for i in range(1, n_corner + 1):
+        th = math.pi + (math.pi / 2 - math.pi) * (i / n_corner)
+        nx, nz = math.cos(th), front * math.sin(th)
+        add(cx_l + r * nx, z_c + r * nz, nx, nz)
+    for i in range(1, n_front + 1):
+        t = i / n_front
+        add(cx_l + (cx_r - cx_l) * t, z_tip, 0.0, float(front))
+    for i in range(1, n_corner + 1):
+        th = math.pi / 2 + (0.0 - math.pi / 2) * (i / n_corner)
+        nx, nz = math.cos(th), front * math.sin(th)
+        add(cx_r + r * nx, z_c + r * nz, nx, nz)
+    add(HALF_W, z_c - front * 0.05, 1.0, 0.0)
+    return pts
+
+def _front_point(x, z, nx, nz, y, front, outward=0.0):
+    """A point on the raked wraparound cab front at height y."""
+    back = 0.0
+    if y >= Y_BELT:
+        back = FRONT_RAKE * (y - Y_BELT)
+    else:
+        # Soft chin roll: the very bottom tucks under slightly.
+        t = max(0.0, (Y_SKIRT + 0.12 - y) / 0.28)
+        back = 0.10 * t * t
+    return (x + nx * outward, y, z + nz * outward - front * back)
+
+def _front_y_samples() -> list[float]:
+    ys = []
+    # Chin / valance / belt
+    for i in range(8):
+        ys.append(Y_BOT + (Y_BELT - Y_BOT) * (i / 7))
+    # Glass
+    for i in range(1, 14):
+        ys.append(Y_BELT + (Y_WIN_TOP - Y_BELT) * (i / 13))
+    # Brow lip up to the roof
+    for i in range(1, 5):
+        ys.append(Y_WIN_TOP + (Y_ROOF - Y_WIN_TOP) * (i / 4))
+    return ys
+
+def _path_s(path) -> list[float]:
+    s = [0.0]
+    for i in range(1, len(path)):
+        x0, z0, _, _ = path[i - 1]
+        x1, z1, _, _ = path[i]
+        s.append(s[-1] + math.hypot(x1 - x0, z1 - z0))
+    return s
+
+def _build_cab_front(parent, front, half, mats, suffix: str) -> None:
+    """Separate raked wraparound cab front, with a real windscreen opening.
+
+    The body loft stops at the A-pillar plane. This piece is a vertical
+    profile swept around the plan-view corner path: near-vertical glass
+    from the belt to the roof, a white rounded chin, and a black valance.
+    """
+    z_tip = front * half
+    z_c = z_tip - front * R_FRONT
+    path = _front_plan_path(front, z_tip)
+    ys = _front_y_samples()
+    slen = _path_s(path)
+    total = slen[-1] or 1.0
+    pillar_w = 0.22  # thick A-pillar along the path
+
+    def is_pillar(i: int) -> bool:
+        return slen[i] < pillar_w or (total - slen[i]) < pillar_w
+
+    def is_glass_y(y: float) -> bool:
+        return (Y_BELT + 0.01) <= y <= (Y_WIN_TOP - 0.01)
+
+    def is_valance_y(y: float) -> bool:
+        return y <= 0.52
+
+    # ---- shell (body-coloured) and valance (black) and glass grids ----
+    def build_layer(kind: str, outward: float, y_pred, path_pred, close=False):
+        rows_out = []
+        rows_in = []
+        used_i = [i for i in range(len(path)) if path_pred(i)]
+        used_j = [j for j, y in enumerate(ys) if y_pred(y)]
+        if len(used_i) < 2 or len(used_j) < 2:
+            return None
+        for j in used_j:
+            y = ys[j]
+            ro, ri = [], []
+            for i in used_i:
+                x, z, nx, nz = path[i]
+                ro.append(_front_point(x, z, nx, nz, y, front, outward))
+                ri.append(_front_point(x, z, nx, nz, y, front, outward - 0.07))
+            rows_out.append(ro)
+            rows_in.append(ri)
+        bm = _grid_to_bmesh(rows_out, close_solid=close, inward_rows=rows_in if close else None)
+        return bm
+
+    # Body shell: everywhere except the windscreen opening
+    # Build a full grid then drop glass-region faces (not on the pillars).
+    full_out, full_in = [], []
+    for y in ys:
+        ro, ri = [], []
+        for (x, z, nx, nz) in path:
+            ro.append(_front_point(x, z, nx, nz, y, front, 0.0))
+            ri.append(_front_point(x, z, nx, nz, y, front, -0.07))
+        full_out.append(ro)
+        full_in.append(ri)
+    # Custom bmesh so we can skip the glass hole
+    bm = bmesh.new()
+    def grid_verts(rows):
+        vs = []
+        for row in rows:
+            vs.append([bm.verts.new(to_b(*p)) for p in row])
+        return vs
+    vo, vi = grid_verts(full_out), grid_verts(full_in)
+    bm.verts.ensure_lookup_table()
+    nj, ni = len(ys), len(path)
+
+    def add_quad(a, b, c, d):
+        try:
+            bm.faces.new((a, b, c, d))
+        except ValueError:
+            pass
+
+    for j in range(nj - 1):
+        y0, y1 = ys[j], ys[j + 1]
+        glass_strip = is_glass_y(0.5 * (y0 + y1))
+        for i in range(ni - 1):
+            if glass_strip and not (is_pillar(i) or is_pillar(i + 1)):
+                continue
+            add_quad(vo[j][i], vo[j][i + 1], vo[j + 1][i + 1], vo[j + 1][i])
+            add_quad(vi[j][i + 1], vi[j][i], vi[j + 1][i], vi[j + 1][i + 1])
+    # Stitch ends, top, bottom
+    for i in range(ni - 1):
+        add_quad(vo[0][i + 1], vo[0][i], vi[0][i], vi[0][i + 1])
+        add_quad(vo[nj - 1][i], vo[nj - 1][i + 1], vi[nj - 1][i + 1], vi[nj - 1][i])
+    for j in range(nj - 1):
+        add_quad(vo[j][0], vo[j + 1][0], vi[j + 1][0], vi[j][0])
+        add_quad(vo[j + 1][ni - 1], vo[j][ni - 1], vi[j][ni - 1], vi[j + 1][ni - 1])
+    # Glass opening rims (outer to inner)
+    for j in range(nj - 1):
+        y0, y1 = ys[j], ys[j + 1]
+        if not is_glass_y(0.5 * (y0 + y1)):
+            continue
+        for i in range(ni - 1):
+            left_edge = is_pillar(i) and not is_pillar(i + 1)
+            right_edge = is_pillar(i + 1) and not is_pillar(i)
+            if left_edge:
+                add_quad(vo[j][i], vi[j][i], vi[j + 1][i], vo[j + 1][i])
+            if right_edge:
+                add_quad(vo[j][i + 1], vo[j + 1][i + 1], vi[j + 1][i + 1], vi[j][i + 1])
+    # Top and bottom of the glass hole
+    for i in range(ni - 1):
+        if is_pillar(i) and is_pillar(i + 1):
+            continue
+        # bottom rim: last y below glass to first y in glass
+        for j in range(nj - 1):
+            below = not is_glass_y(ys[j]) and is_glass_y(ys[j + 1])
+            above = is_glass_y(ys[j]) and not is_glass_y(ys[j + 1])
+            if below:
+                add_quad(vo[j + 1][i], vo[j + 1][i + 1], vi[j + 1][i + 1], vi[j + 1][i])
+            if above:
+                add_quad(vo[j][i + 1], vo[j][i], vi[j][i], vi[j][i + 1])
+
+    shell = mesh_from_bm("cab-front-shell", bm)
+    bm.free()
+    obj = new_obj("cab-front", shell, mats["chin"], parent)
+    polish_shell(obj, bevel_width=0.008, bevel_seg=2)
+
+    # Black lower valance as a wraparound band on the chin.
+    vbm = build_layer("valance", 0.012, is_valance_y, lambda i: True, close=True)
+    if vbm is not None and vbm.faces:
+        new_obj("cab-valance", mesh_from_bm("cab-valance", vbm), mats["valance"], parent)
+    if vbm is not None:
+        vbm.free()
+
+    # Windscreen glass: the wraparound opening, slightly outboard, dark.
+    g_rows = []
+    g_i = [i for i in range(len(path)) if not is_pillar(i)]
+    g_y = [y for y in ys if is_glass_y(y)]
+    if len(g_i) >= 2 and len(g_y) >= 2:
+        # include one pillar-adjacent column on each side so the glass meets the frame
+        i0, i1 = g_i[0], g_i[-1]
+        i0 = max(0, i0 - 1)
+        i1 = min(len(path) - 1, i1 + 1)
+        for y in g_y:
+            row = []
+            for i in range(i0, i1 + 1):
+                x, z, nx, nz = path[i]
+                row.append(_front_point(x, z, nx, nz, y, front, 0.025))
+            g_rows.append(row)
+        gbm = _grid_to_bmesh(g_rows, close_solid=False)
+        new_obj("windscreen", mesh_from_bm("windscreen-glass", gbm), mats["glassFront"], parent)
+        gbm.free()
+
+    # Dest sign sits *inside* the upper windscreen, slightly behind the glass.
+    y_dest = Y_WIN_TOP - 0.22
+    # Centreline path point (front straight, x≈0)
+    mid = min(path, key=lambda p: abs(p[0]))
+    dx, dz, dnx, dnz = mid
+    px, py, pz = _front_point(dx, dz, dnx, dnz, y_dest, front, 0.01)
+    dest = add_box(f"destSign-{'A' if front > 0 else 'E'}", 1.20, 0.16, 0.04,
+                   0.0, py, pz, mats["dest"], parent)
+    dest.name = f"destSign-{'A' if front > 0 else 'E'}"
+    dest.rotation_euler = _rot_x_as_blender(-math.atan(FRONT_RAKE) * front)
+
+    # Thick blue A-pillar bands, from just under the roof lip (not the roof
+    # corner) down the pillar and a short way along the lower glass edge.
+    for side in (-1.0, 1.0):
+        # Path indices near this side's pillar, then onto the belt.
+        if side < 0:
+            idxs = list(range(0, min(len(path), 8)))
+        else:
+            idxs = list(range(max(0, len(path) - 8), len(path)))
+            idxs = list(reversed(idxs))
+        pts = []
+        # Start below the roof lip on the side, never on the roof corner.
+        x0, z0, nx0, nz0 = path[idxs[0]]
+        pts.append(_front_point(x0, z0, nx0, nz0, Y_ROOF - 0.28, front, 0.02))
+        for i in idxs:
+            x, z, nx, nz = path[i]
+            pts.append(_front_point(x, z, nx, nz, Y_BELT + 0.12 + 0.35 * (abs(x) / max(0.2, HALF_W)), front, 0.03))
+        # Taper along the lower glass edge toward the centre, but not past mid.
+        # Find a few front-path points going inward.
+        mid_i = min(range(len(path)), key=lambda k: abs(path[k][0]))
+        if side < 0:
+            along = [k for k in range(idxs[-1], mid_i) if path[k][0] < -0.30]
+        else:
+            along = [k for k in range(idxs[-1], mid_i, -1) if path[k][0] > 0.30]
+        for k in along[1:6]:
+            x, z, nx, nz = path[k]
+            pts.append(_front_point(x, z, nx, nz, Y_BELT + 0.04, front, 0.03))
+        if len(pts) < 3:
+            continue
+        curve_data = bpy.data.curves.new(f"swoosh-crv-{side}", "CURVE")
+        curve_data.dimensions = "3D"
+        curve_data.bevel_depth = 0.036
+        curve_data.bevel_resolution = 3
+        curve_data.resolution_u = 16
+        spline = curve_data.splines.new("NURBS")
+        spline.points.add(len(pts) - 1)
+        for i, (x, y, z) in enumerate(pts):
+            bx, by, bz = to_b(x, y, z)
+            taper = 1.0 if i < 4 else max(0.4, 1.0 - 0.15 * (i - 3))
+            spline.points[i].co = (bx, by, bz, 1.0)
+            try:
+                spline.points[i].radius = taper
+            except Exception:
+                pass
+        spline.use_endpoint_u = True
+        spline.order_u = min(4, len(pts))
+        tmp = bpy.data.objects.new(f"swoosh-{side}", curve_data)
+        tmp.data.materials.append(mats["swoosh"])
+        tmp.parent = parent
+        bpy.context.collection.objects.link(tmp)
+        deg = bpy.context.evaluated_depsgraph_get()
+        ev = tmp.evaluated_get(deg)
+        mesh = bpy.data.meshes.new_from_object(ev)
+        mesh_obj = bpy.data.objects.new(f"swoosh-{side}", mesh)
+        mesh_obj.data.materials.append(mats["swoosh"])
+        mesh_obj.parent = parent
+        bpy.context.collection.objects.link(mesh_obj)
+        bpy.data.objects.remove(tmp, do_unlink=True)
+        mesh.shade_smooth()
+
+    # Headlight clusters + red tail lamps on the chin, left and right.
+    y_lamp = 0.88
+    x_lamp = 0.72
+    # Place on the front surface at those x's
+    for sx, tag in ((-1.0, "L"), (1.0, "R")):
+        hit = min(path, key=lambda p: abs(p[0] - sx * x_lamp))
+        hx, hz, hnx, hnz = hit
+        lx, ly, lz = _front_point(hx, hz, hnx, hnz, y_lamp, front, 0.06)
+        aname = f"lampAnchor-head-{tag}" if front > 0 else f"lampAnchor-tail-{tag}"
+        new_empty(aname, (lx, ly, lz), parent=parent,
+                  rot_z=(math.pi if front < 0 else 0.0))
+        # Main headlight
+        add_cyl(f"lamp-ring-{tag}", 0.11, 0.03, lx, ly, lz, "z", mats["chrome"], parent, segs=20)
+        add_cyl(f"lamp-lens-{tag}", 0.085, 0.025,
+                lx, ly, lz + front * 0.02, "z", mats["lens"], parent, segs=20)
+        # Red tail / marker inboard of the headlight
+        rx = lx - sx * 0.22
+        add_cyl(f"tail-ring-{tag}", 0.06, 0.025, rx, ly, lz, "z", mats["chrome"], parent, segs=16)
+        add_cyl(f"tail-lens-{tag}", 0.045, 0.02,
+                rx, ly, lz + front * 0.02, "z", mats["tailLens"], parent, segs=16)
+
+    # Fleet number on the chin (centre of the white bumper).
+    y_num = 0.70
+    mx, mz, mnx, mnz = mid
+    nx_, ny_, nz_ = _front_point(mx, mz, mnx, mnz, y_num, front, 0.05)
+    w, h = 512, 160
+    px = _new_pixels(w, h, COL_BODY)
+    text = f"{FLEET_NO}{suffix}"
+    scale = 20
+    tw = (len(text) * 6 - 1) * scale
+    u = max(0.02, (w - tw) / 2.0 / w)
+    _draw_text(px, w, h, text, u, 0.50, scale, (0.06, 0.06, 0.07))
+    img = bpy.data.images.new(f"chin-num-{suffix}", width=w, height=h, alpha=False)
+    img.colorspace_settings.name = "sRGB"
+    img.pixels.foreach_set(px)
+    img.pack()
+    num_mat = make_mat(f"chinNum{suffix}", COL_BODY, 0.20, 0.40, image=img)
+    add_box("chin-number", 0.70, 0.16, 0.01, 0.0, ny_, nz_, num_mat, parent)
+
+    # Wipers parked on the lower glass, just above the belt, on the surface.
+    y_w = Y_BELT + 0.08
+    for sx, inward in ((-0.42, 1.0), (0.42, -1.0)):
+        hit = min(path, key=lambda p: abs(p[0] - sx))
+        wx, wz, wnx, wnz = hit
+        px, py, pz = _front_point(wx, wz, wnx, wnz, y_w, front, 0.03)
+        arm = add_box("wiper-arm", 0.016, 0.85, 0.016,
+                      px, py + 0.40, pz - front * 0.10, mats["trim"], parent)
+        arm.rotation_euler = _rot_x_as_blender(-math.atan(FRONT_RAKE) * front)
+        add_box("wiper-blade", 0.012, 0.62, 0.018,
+                px + inward * 0.06, py + 0.78, pz - front * 0.18, mats["rubber"], parent)
+
+    # Side cameras just behind the A-pillar, on the body side.
+    for sx in (-1.0, 1.0):
+        x0 = sx * (HALF_W - 0.02)
+        y0 = 2.05
+        z0 = z_c - front * 0.12
+        add_cyl("cam-stump", 0.028, 0.08, x0, y0, z0, "x", mats["trim"], parent, segs=10)
+        x1 = sx * (HALF_W + 0.13)
+        add_cyl("cam-arm", 0.016, 0.16, (x0 + x1) / 2.0, y0 - 0.02, z0 + front * 0.03,
+                "x", mats["trim"], parent, segs=8)
+        add_rounded_box("cam-pod", 0.07, 0.08, 0.11,
+                        x1, y0 - 0.04, z0 + front * 0.05,
+                        mats["trim"], parent, radius=0.015, seg=2)
+
+    # Brow marker
+    bx, bz, bnx, bnz = mid
+    mx, my, mz = _front_point(bx, bz, bnx, bnz, Y_ROOF - 0.10, front, 0.02)
+    add_cyl("brow-marker", 0.025, 0.03, mx, my, mz, "z", mats["lens"], parent, segs=10)
+
+def _add_side_glass(parent, side, z, length, mats) -> None:
+    """Explicit tall side-glass panel, slightly outside the skin."""
+    if length < 0.25:
+        return
+    x = side * (HALF_W + 0.012)
+    add_box("side-glass", 0.018, Y_WIN_H, length,
+            x, Y_WIN_MID, z, mats["glass"], parent)
+
+def _add_roof_cap(parent, z0, z1, mats) -> None:
+    """Thin blue roof cap with a defined edge, along this module's body."""
+    zmid = 0.5 * (z0 + z1)
+    length = max(0.4, abs(z1 - z0) - 0.20)
+    add_box("roof-cap", LRV_WIDTH * 0.80, 0.038, length,
+            0.0, Y_ROOF + 0.016, zmid, mats["swoosh"], parent)
+
 def build_module(i: int, mats: dict) -> bpy.types.Object:
     spec = MODULES[i]
     name = f"module-{spec['name']}"
@@ -1022,37 +1368,33 @@ def build_module(i: int, mats: dict) -> bpy.types.Object:
         return (z - (-half)) / length
 
     z_rear, z_front = -half, half
-    body_z0 = (-half + NOSE_LEN) if front == -1 else z_rear
-    body_z1 = (half - NOSE_LEN) if front == 1 else z_front
+    # Cab body stops at the A-pillar plane. The wraparound front is a
+    # separate swept mesh (_build_cab_front), not a loft carve.
+    if front != 0:
+        z_ap = front * (half - R_FRONT)
+        body_z0 = z_ap if front == -1 else z_rear
+        body_z1 = z_ap if front == 1 else z_front
+    else:
+        body_z0, body_z1 = z_rear, z_front
 
     base = body_profile()
     rings: list[dict] = []
     if front == 0:
-        nseg = 8 if i != 2 else 5
+        nseg = 16 if i != 2 else 10
         for k in range(nseg + 1):
             t = k / nseg
             z = z_rear + (z_front - z_rear) * t
             rings.append({"pts": base, "z": z, "u": u_at(z)})
         cap_start = cap_end = True
     else:
-        nseg = 6
-        if front == 1:
-            for k in range(nseg):
-                t = k / nseg
-                z = z_rear + (body_z1 - z_rear) * t
-                rings.append({"pts": base, "z": z, "u": u_at(z)})
-            nose, _z_joint = cab_nose_stations(front, half, NOSE_LEN, u_at)
-            rings.extend(nose)
-        else:
-            nose, _z_joint = cab_nose_stations(front, half, NOSE_LEN, u_at)
-            body_rings = []
-            for k in range(nseg):
-                t = k / nseg
-                z = z_front + (body_z0 - z_front) * t
-                body_rings.append({"pts": base, "z": z, "u": u_at(z)})
-            rings = body_rings + nose
-        cap_start = True
-        cap_end = True
+        nseg = 14
+        for k in range(nseg + 1):
+            t = k / nseg
+            z = body_z0 + (body_z1 - body_z0) * t
+            rings.append({"pts": base, "z": z, "u": u_at(z)})
+        # Leave the A-pillar end open so the windscreen looks into the cab.
+        cap_start = front == 1   # cap the rear articulation
+        cap_end = front == -1
 
     bm = loft_shell(rings, cap_start, cap_end)
 
@@ -1061,30 +1403,30 @@ def build_module(i: int, mats: dict) -> bpy.types.Object:
     door_z = 0.0 if not is_cab else (-1.65 if i == 0 else 1.65)
     door_half = 0.68
     if i != 2:
-        y0, y1 = 0.22, 3.05
+        y0, y1 = 0.22, Y_WIN_TOP
         for side in (-1.0, 1.0):
             recess_door_region(bm, side, door_z, door_half, y0, y1, depth=0.10)
 
-    # Side-window openings: taller glass, higher on the body, so the white belt
-    # below them matches the 514 side photo. C is two bays, no door.
-    win_h = 1.40
-    win_y = 2.20
+    # Tall, almost-continuous side glass from the belt to just under the roof
+    # lip, with only narrow body pillars between panes. C is two bays, no door.
+    win_h = Y_WIN_H
+    win_y = Y_WIN_MID
     panes: list[tuple[float, float]] = []  # (z, len)
     if is_cab:
-        z_a = (half - NOSE_LEN - 0.12) if i == 0 else -(half - NOSE_LEN - 0.12)
+        z_a = (body_z1 - 0.06) if i == 0 else (body_z0 + 0.06)
         z_door_front = door_z + (door_half if i == 0 else -door_half)
         mid = (z_a + z_door_front) / 2.0
-        ln = abs(z_a - z_door_front) - 0.10
+        ln = abs(z_a - z_door_front) - PILLAR
         if ln > 0.4:
             panes.append((mid, ln))
     elif i != 2:
-        span = (body_z1 - body_z0) / 2.0 - door_half - 0.15
+        span = (body_z1 - body_z0) / 2.0 - door_half - PILLAR
         if span > 0.4:
-            panes.append((-door_half - 0.12 - span / 2.0, span))
-            panes.append((door_half + 0.12 + span / 2.0, span))
+            panes.append((-door_half - PILLAR * 0.5 - span / 2.0, span))
+            panes.append((door_half + PILLAR * 0.5 + span / 2.0, span))
     else:
-        panes.append((-0.78, 1.20))
-        panes.append((0.78, 1.20))
+        panes.append((-0.80, 1.48))
+        panes.append((0.80, 1.48))
 
     glass_bms: list[bmesh.types.BMesh] = []
 
@@ -1111,8 +1453,6 @@ def build_module(i: int, mats: dict) -> bpy.types.Object:
     body_mesh = mesh_from_bm(f"{name}-body", bm)
     bm.free()
     body_obj = new_obj("body", body_mesh, body_mat, root)
-    if is_cab:
-        _add_windscreen_glass(front, half, root, mats)
     polish_shell(body_obj, bevel_width=0.012, bevel_seg=2)
 
     if glass_bms:
@@ -1137,11 +1477,13 @@ def build_module(i: int, mats: dict) -> bpy.types.Object:
         gbm.free()
         new_obj("windows", glass_mesh, mats["glass"], root)
 
-    # Thin black pillars / frames around each side pane
+    # Explicit outward glass so the tall window band is visible even if a
+    # punch misses a face. The remaining body between panes is the pillar.
     for pz, plen in panes:
         for side in (-1.0, 1.0):
-            add_box(f"frame-{i}-{side}-{pz:.2f}", 0.022, win_h + 0.06, plen + 0.06,
-                    side * (HALF_W + 0.005), win_y, pz, mats["trim"], root)
+            _add_side_glass(root, side, pz, plen, mats)
+
+    _add_roof_cap(root, body_z0, body_z1, mats)
 
     # Roof equipment: long, low, rounded-rectangular grey HVAC — not mushroom caps.
     z_mid = (body_z0 + body_z1) / 2.0 if front != 0 else 0.0
@@ -1161,26 +1503,10 @@ def build_module(i: int, mats: dict) -> bpy.types.Object:
                         0.0, Y_ROOF + 0.10, -1.15, mats["fairing"], root, radius=0.05, seg=3)
 
     if is_cab:
-        z_joint = front * (half - NOSE_LEN)
         suffix = "A" if i == 0 else "B"
-        # Dest is an LED matrix in the upper windscreen, not a box on the brow.
-        y_dest = Y_ROOF - 0.42
-        z_dest = z_joint + front * (_nose_skin_s(y_dest) * NOSE_LEN - 0.06)
-        dest = add_box(f"destSign-{'A' if i == 0 else 'E'}", 1.35, 0.16, 0.04,
-                       0.0, y_dest, z_dest, mats["dest"], root)
-        dest.name = f"destSign-{'A' if i == 0 else 'E'}"
-        dest.rotation_euler = _rot_x_as_blender(-0.38 if front > 0 else 0.38)
-
-        _add_chin_valance(root, front, half, z_joint, mats, suffix)
-        _add_wipers(root, front, z_joint, mats)
-        _add_camera_arms(root, front, z_joint, mats)
+        _build_cab_front(root, front, half, mats, suffix)
+        z_joint = front * (half - R_FRONT)
         _add_cab_interior(root, front, half, z_joint, mats)
-        _add_swoosh(root, front, half, z_joint, mats)
-
-        # Marker light at the brow centre (visible on 504B).
-        add_cyl("brow-marker", 0.025, 0.03,
-                0.0, Y_ROOF - 0.18, z_joint + front * 0.36 * NOSE_LEN,
-                "z", mats["lens"], root, segs=10)
 
     if i != 2:
         for side in (-1, 1):
@@ -1282,39 +1608,42 @@ def _add_windscreen_glass(front, half, parent, mats) -> None:
 
 def _add_door(parent, i, side, door_z, mats) -> None:
     tag = "L" if side < 0 else "R"
-    cab = {0: "A", 4: "E"}.get(i, "M")
-    x = side * (LRV_WIDTH / 2 - 0.04)
-    y = 1.62
+    cab = {0: "A", 1: "B", 3: "D", 4: "E"}.get(i, "M")
+    x = side * (LRV_WIDTH / 2 - 0.03)
+    y0 = 0.24
+    y1 = Y_WIN_TOP
+    y = 0.5 * (y0 + y1)
+    h = y1 - y0
     group = new_empty(f"door-{cab}-{tag}", (x, y, door_z), parent)
     group.location = Vector(to_b(x, y, door_z))
-    # Full-height black plug door with a two-pane window and central mullion.
-    add_box("door-panel", 0.05, 2.64, 1.32, 0, 0, 0, mats["door"], group)
-    add_box("door-seal", 0.02, 2.70, 1.38, side * -0.012, 0, 0, mats["trim"], group)
-    gw, gh, gd = 0.025, 1.70, 0.50
-    gap = 0.08
-    add_box("door-glass-a", gw, gh, gd, side * 0.03, 0.38, -(gd + gap) / 2, mats["glass"], group)
-    add_box("door-glass-b", gw, gh, gd, side * 0.03, 0.38, +(gd + gap) / 2, mats["glass"], group)
-    add_box("door-mullion", 0.03, gh + 0.04, 0.06, side * 0.03, 0.38, 0, mats["trim"], group)
+    # Full-height glazed plug door, flush with the side glass.
+    add_box("door-panel", 0.04, h, 1.32, 0, 0, 0, mats["door"], group)
+    # Two tall panes from a short kick panel up to the roof lip, central mullion.
+    kick = 0.28
+    gh = h - kick - 0.06
+    gy = (kick - 0.02) / 2.0  # shift up from the group centre
+    gd = 0.56
+    gap = 0.07
+    add_box("door-glass-a", 0.022, gh, gd, side * 0.025, gy, -(gd + gap) / 2, mats["glass"], group)
+    add_box("door-glass-b", 0.022, gh, gd, side * 0.025, gy, +(gd + gap) / 2, mats["glass"], group)
+    add_box("door-mullion", 0.024, gh + 0.02, 0.05, side * 0.025, gy, 0, mats["trim"], group)
     group["side"] = int(side)
     group["baseX"] = float(x)
     group["baseZ"] = float(door_z)
 
-
 def _add_bellows(parent, bel_z, mats) -> None:
-    # Taller, slightly inset concertina with a visible roofline joint.
-    bel_h = (Y_ROOF - Y_BOT) * 0.97
-    bel_y = Y_BOT + 0.02 + bel_h / 2.0
+    bel_h = (Y_ROOF - Y_BOT) * 0.985
+    bel_y = Y_BOT + 0.01 + bel_h / 2.0
     n_folds = 10
-    span = 0.50
+    span = 0.52
     for r in range(n_folds):
         t = r / (n_folds - 1)
         z = bel_z - span / 2.0 + t * span
         fat = 1.0 if r % 2 == 0 else 0.86
-        add_rounded_box(f"bellows-{r}", LRV_WIDTH * 0.90 * fat, bel_h, 0.048,
+        add_rounded_box(f"bellows-{r}", LRV_WIDTH * 0.88 * fat, bel_h, 0.048,
                         0.0, bel_y, z, mats["rubber"], parent, radius=0.02, seg=1)
-    add_box("bellows-roof-joint", LRV_WIDTH * 0.86, 0.06, 0.16,
-            0.0, Y_ROOF - 0.02, bel_z, mats["trim"], parent)
-
+    add_box("bellows-roof-joint", LRV_WIDTH * 0.84, 0.05, 0.14,
+            0.0, Y_ROOF - 0.01, bel_z, mats["trim"], parent)
 
 def _add_pantograph(parent, mats) -> None:
     pan = new_empty("pantograph", (0, 0, 0), parent)
@@ -1407,33 +1736,29 @@ def _add_swoosh(parent, front, half, z_joint, mats) -> None:
 
 
 def _add_cab_interior(parent, front, half, z_joint, mats) -> None:
-    # Rear bulkhead just inside the body / nose joint
+    # z_joint is the A-pillar plane; the cabin only extends R_FRONT to the tip.
+    depth = R_FRONT
     add_box("cab-bulkhead", LRV_WIDTH * 0.90, 2.4, 0.05,
-            0.0, LRV_FLOOR + 1.25, z_joint - front * 0.12,
+            0.0, LRV_FLOOR + 1.25, z_joint - front * 0.08,
             mats["interior"], parent)
-    # Floor in the nose
-    nose_mid = z_joint + front * (NOSE_LEN * 0.35)
-    add_box("cab-floor", LRV_WIDTH * 0.70, 0.04, NOSE_LEN * 0.7,
+    nose_mid = z_joint + front * (depth * 0.32)
+    add_box("cab-floor", LRV_WIDTH * 0.70, 0.04, depth * 0.55,
             0.0, LRV_FLOOR + 0.08, nose_mid, mats["interior"], parent)
-    # Dashboard, raked to follow the windscreen
-    dash = add_box("cab-dash", 1.70, 0.22, 0.35,
-                   0.0, 1.05, z_joint + front * (NOSE_LEN * 0.38),
+    dash = add_box("cab-dash", 1.70, 0.22, 0.28,
+                   0.0, 1.05, z_joint + front * (depth * 0.28),
                    mats["dash"], parent)
-    dash.rotation_euler = _rot_x_as_blender((-0.35 if front > 0 else 0.35))
-    # Two seat backs (operator on the right, Canadian practice)
+    dash.rotation_euler = _rot_x_as_blender(-math.atan(FRONT_RAKE) * (1 if front > 0 else -1))
     for sx, tag in ((0.50, "R"), (-0.50, "L")):
         add_rounded_box(f"seat-{tag}", 0.42, 0.70, 0.18,
-                        sx, 0.85, z_joint + front * 0.10,
+                        sx, 0.85, z_joint + front * 0.06,
                         mats["seat"], parent, radius=0.04, seg=2)
-        add_rounded_box(f"seat-base-{tag}", 0.42, 0.10, 0.40,
-                        sx, 0.55, z_joint + front * 0.22,
+        add_rounded_box(f"seat-base-{tag}", 0.42, 0.10, 0.36,
+                        sx, 0.55, z_joint + front * 0.14,
                         mats["seat"], parent, radius=0.03, seg=2)
-    # Master-controller pedestal (right)
-    add_cyl("controller", 0.05, 0.35, 0.42, 0.95, z_joint + front * 0.32,
+    add_cyl("controller", 0.05, 0.35, 0.42, 0.95, z_joint + front * 0.18,
             "y", mats["trim"], parent, segs=8)
-    # Sun-visor / header above the windscreen, inside
-    add_box("sun-visor", 1.6, 0.06, 0.16,
-            0.0, 2.55, z_joint + front * (NOSE_LEN * 0.18),
+    add_box("sun-visor", 1.6, 0.06, 0.14,
+            0.0, Y_WIN_TOP - 0.16, z_joint + front * 0.10,
             mats["interior"], parent)
 
 
@@ -1443,21 +1768,19 @@ def build_truck(kind: str, mats) -> bpy.types.Object:
                     0.0, 0.38, 0.0, mats["bogie"], root, radius=0.04, seg=2)
     for sx in (-1.0, 1.0):
         add_box("sideframe", 0.08, 0.38, 2.55, sx * 1.02, 0.36, 0.0, mats["bogie"], root)
-        # Smooth dark valance that hides the wheels from the side, flush with the body.
-        add_rounded_box("bogie-skirt", 0.07, 0.24, 2.60,
-                        sx * (HALF_W - 0.05), 0.26, 0.0,
-                        mats["valance"], root, radius=0.04, seg=3)
+        # Low, thin valance — hide the wheels without thickening the skirt.
+        add_rounded_box("bogie-skirt", 0.06, 0.16, 2.55,
+                        sx * (HALF_W - 0.05), 0.22, 0.0,
+                        mats["valance"], root, radius=0.03, seg=2)
     for zz in (-0.925, 0.925):
         for xx in (-0.72, 0.72):
             add_cyl("wheel", 0.33, 0.12, xx, 0.33, zz, "x", mats["bogie"], root, segs=20)
             add_cyl("flange", 0.36, 0.03, xx + (0.07 if xx > 0 else -0.07), 0.33, zz,
                     "x", mats["bogie"], root, segs=20)
-    # Front/rear apron under the frame
     for zz in (-1.22, 1.22):
-        add_rounded_box("bogie-apron", 2.40, 0.16, 0.16,
-                        0.0, 0.22, zz, mats["valance"], root, radius=0.04, seg=2)
+        add_rounded_box("bogie-apron", 2.40, 0.12, 0.14,
+                        0.0, 0.20, zz, mats["valance"], root, radius=0.03, seg=2)
     return root
-
 
 def count_tris(obj) -> int:
     if obj.type != "MESH" or obj.data is None:
@@ -1650,14 +1973,15 @@ def main() -> None:
         "cabA": make_mat("bodyCabA", COL_BODY, 0.42, 0.32, image=img_a),
         "cabE": make_mat("bodyCabE", COL_BODY, 0.42, 0.32, image=img_e),
         "mid": make_mat("bodyMid", COL_BODY, 0.42, 0.32, image=img_m),
-        "door": make_mat("doorPanel", (0.16, 0.17, 0.19), 0.35, 0.45, image=img_d),
+        "door": make_mat("doorPanel", COL_BODY, 0.35, 0.40),
         "trim": make_mat("trim", (0.102, 0.106, 0.118), 0.45, 0.55),
-        "glass": make_mat("lrvGlass", (0.102, 0.157, 0.200), 0.15, 0.08, alpha=0.58),
+        "glass": make_mat("lrvGlass", (0.04, 0.045, 0.05), 0.0, 0.32, alpha=0.92),
         "fairing": make_mat("fairing", (0.52, 0.54, 0.57), 0.45, 0.42),
         "valance": make_mat("valance", (0.04, 0.04, 0.045), 0.30, 0.48),
         "chrome": make_mat("chrome", (0.75, 0.76, 0.78), 0.85, 0.18),
         "dest": make_mat("dest", (0.06, 0.07, 0.08), 0.20, 0.35),
-        "glassFront": make_mat("lrvGlassFront", (0.04, 0.05, 0.06), 0.15, 0.08, alpha=0.92),
+        "glassFront": make_mat("lrvGlassFront", (0.015, 0.017, 0.02), 0.0, 0.48, alpha=1.0),
+        "tailLens": make_mat("tailLens", (0.55, 0.05, 0.06), 0.25, 0.15, alpha=0.92),
         "chin": make_mat("chin", COL_BODY, 0.35, 0.32),
         "swoosh": make_mat("swoosh", COL_BLUE, 0.25, 0.40),
         "rubber": make_mat("rubber", (0.07, 0.07, 0.075), 0.05, 0.85),
