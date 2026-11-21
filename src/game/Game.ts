@@ -21,6 +21,12 @@ import { TutorialController } from './Tutorial';
 import { Minimap, etaSeconds, formatEta } from './Minimap';
 import { TrainLights, lightsOn, toggleLightsMode, lightsLabel, type LightsMode } from './TrainLights';
 import { sideUnit, sideCamSide, nextSideCamMode, type SideCamMode } from './PlatformLayout';
+import { localToLonLat } from './coords';
+import {
+  buildTpssProps, nudgeTpssOffTrack, samplePower, tractionPowerFromForces,
+  type PowerSample,
+} from './TractionPower';
+import { renderCabHud, type CabHudState } from './CabHud';
 
 export type RouteKey = 'ion_southbound' | 'ion_northbound' | 'elmira' | 'guelph';
 
@@ -71,6 +77,10 @@ export class Game {
   private sun!: THREE.DirectionalLight;
   private hemi!: THREE.HemisphereLight;
   private hud: Record<string, HTMLElement>;
+  private tpssGroup: THREE.Group | null = null;
+  private powerSample: PowerSample | null = null;
+  private tcmsVisible = true;
+  private elecVisible = true;
   private onEnd: ((html: string) => void) | null = null;
   private weatherFx: WeatherFX | null = null;
   private tod: 'day' | 'dusk' | 'night' = 'day';
@@ -258,6 +268,7 @@ export class Game {
     this.physics.pantographUp = electric;
     this.physics.lineVoltage = 750;
     this.physics.resetVigilance();
+    this.installTpssProps(electric);
     this.physics.autoSand = opts.autoSand ?? true;
     this.physics.slipControl = opts.slipControl ?? true;
 
@@ -376,7 +387,7 @@ export class Game {
   private handleInput(_dt: number) {
     // Xbox / standard-mapping pad: edges are queued as key codes; analog triggers suggest notches
     this.input.pollGamepads();
-    const edgeKeys = new Set(['KeyR', 'KeyT', 'KeyW', 'KeyS', 'ArrowUp', 'ArrowDown', 'Enter', 'Space', 'KeyP', 'KeyC', 'KeyH', 'KeyV']);
+    const edgeKeys = new Set(['KeyR', 'KeyT', 'KeyW', 'KeyS', 'ArrowUp', 'ArrowDown', 'Enter', 'Space', 'KeyP', 'KeyC', 'KeyH', 'KeyV', 'KeyE', 'KeyU']);
     // every press in arrival order (queue) — none lost at low frame rates
     for (const code of this.input.drainEdges()) {
       if (!edgeKeys.has(code)) continue;
@@ -459,6 +470,14 @@ export class Game {
     if (code === 'KeyC') this.camMode = ((this.camMode + 1) % 3) as 0 | 1 | 2;
     if (code === 'KeyH') this.lightsMode = toggleLightsMode(this.lightsMode, this.tod);
     if (code === 'KeyV') this.sideCamMode = nextSideCamMode(this.sideCamMode);
+    if (code === 'KeyU') {
+      this.tcmsVisible = !this.tcmsVisible;
+      this.syncPanelVisibility();
+    }
+    if (code === 'KeyE') {
+      this.elecVisible = !this.elecVisible;
+      this.syncPanelVisibility();
+    }
   }
 
   /** Chainage limits so the whole consist stays between the bumpers. */
@@ -589,6 +608,7 @@ export class Game {
 
     // ATP-style supervision: penalty brake + traction cut-out above limit + 5 km/h (Physics.enforceSpeedLimit)
     this.physics.enforceSpeedLimit(limit);
+    this.updateLineVoltage(sample.x, sample.z);
     this.physics.step(dt, sample.grade, sample.curvature);
     const ds = this.physics.speed * dt;
     const [sLo, sHi] = this.sLimits();
@@ -729,61 +749,133 @@ export class Game {
   }
 
   private updateHud(limit: number, row: string, aspect: SignalAspect | null, heading: number) {
-    this.hud.speedVal.textContent = String(Math.round(this.physics.speedKmh()));
-    this.hud.powerVal.textContent = String(this.physics.powerNotch);
-    this.hud.brakeVal.textContent = String(this.physics.brakeNotch) + (this.physics.holdBrake ? ' HOLD' : '');
-    this.hud.limitVal.textContent = String(limit);
-    if (this.hud.weather) {
-      const label = this.weather === 'dry' ? 'Dry' : this.weather === 'rain' ? 'Rain' : 'Snow';
-      this.hud.weather.textContent = label;
-    }
-    if (this.hud.rowVal) {
-      const label = row === 'street' ? 'Street' : row === 'station' ? 'Station' : 'Reserved';
-      this.hud.rowVal.textContent = label;
-    }
-    if (this.hud.signalVal) {
-      this.hud.signalVal.textContent = aspect ? aspect.toUpperCase() : '—';
-    }
+    const p = this.physics;
     const next = this.stations.nextStation(this.s);
-    const distM = next ? Math.max(0, next.distance_m - this.s) : 0;
-    const eta = next ? etaSeconds(distM, this.physics.speed) : null;
-    this.hud.nextStation.textContent = next
-      ? `${next.name} · ${Math.round(distM)} m · ETA ${formatEta(eta)}`
-      : 'End of line';
-    this.hud.doors.textContent = this.physics.doorsOpen ? 'Doors OPEN' : 'Doors closed';
-    this.hud.panto.textContent = this.physics.electric ? (this.physics.pantographUp ? 'Panto up' : 'Panto down') : 'Diesel';
-    this.hud.reverser.textContent = reverserLabel(this.physics.reverser);
-    this.hud.voltage.textContent = this.physics.electric ? `${this.physics.lineVoltage} V` : '—';
-    this.hud.slip.className = 'lamp ' + (this.physics.wheelslip ? 'on' : 'off');
-    if (this.hud.sand) this.hud.sand.className = 'lamp ' + (this.physics.sandActive() ? 'on' : 'off');
-    if (this.hud.lights) this.hud.lights.textContent = lightsLabel(this.lightsMode, this.tod);
-    if (this.hud.sideCam && this.camMode === 2) this.hud.sideCam.textContent = `Side cam ${this.sideCamMode}`;
-    else if (this.hud.sideCam) this.hud.sideCam.textContent = '';
-    if (this.hud.blockVal) {
-      const reason = this.physics.powerBlockedReason();
-      this.hud.blockVal.textContent = reason || '';
-      this.hud.blockVal.parentElement?.classList.toggle('hidden', !reason);
+    const distM = next ? next.distance_m - this.s : null;
+    const eta = next && distM != null ? etaSeconds(distM, p.speed) : null;
+    const dir: 1 | -1 = p.reverser === 0 ? (p.speed >= 0 ? 1 : -1) : p.reverser;
+    const ahead = this.signals.nearestAhead(this.s, dir, 400);
+    let signalDist: number | null = null;
+    if (ahead) {
+      signalDist = dir > 0 ? ahead.s_ion - this.s : this.s - ahead.s_ion;
     }
-    if (this.hud.ionVal) {
-      const st = this.photoreal.status;
-      this.hud.ionVal.textContent =
-        st === 'ready' || st === 'loading' ? 'Google 3D Tiles' : st === 'error' ? 'OSM (3D tiles failed)' : this.ion.hudLabel();
-    }
-    if (this.hud.vigVal) {
-      const v = Math.max(0, Math.ceil(this.physics.vigilanceTimer));
-      this.hud.vigVal.textContent = this.physics.deadmanOk ? `Vig ${v}s` : 'VIG FAIL';
-    }
+    const doorSide = this.physics.doorsOpen ? (this.doorSide() < 0 ? 'L' : 'R') : '';
+    const refSNow = this.ionForwardS();
+    const inStreet =
+      this.activeLineKey === 'ion' &&
+      (row === 'street' || (row === 'station' && this.row.isStreetBand(refSNow)));
+    const atpMode = !p.electric || this.activeLineKey !== 'ion' ? '—' : (inStreet ? 'LOS' : 'ATP');
+    const ps = this.powerSample;
     const h = Math.floor(this.simClock / 3600) % 24;
     const m = Math.floor((this.simClock % 3600) / 60);
     const sec = Math.floor(this.simClock % 60);
-    this.hud.clock.textContent = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
+    const clock = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
+    const v = Math.max(0, Math.ceil(p.vigilanceTimer));
+    const state: CabHudState = {
+      speedKmh: p.speedKmh(),
+      limitKmh: limit,
+      overspeed: p.overspeedPenalty || p.speedKmh() > limit + 2,
+      atpMode,
+      signalAspect: aspect,
+      signalDistM: signalDist,
+      nextStation: next ? next.name : '—',
+      nextDistM: distM,
+      etaLabel: eta != null ? formatEta(eta) : '',
+      doorsOpen: p.doorsOpen,
+      doorSide: doorSide as 'L' | 'R' | '',
+      reverser: reverserLabel(p.reverser),
+      powerNotch: p.powerNotch,
+      brakeNotch: p.brakeNotch,
+      holdBrake: p.holdBrake,
+      emergencyBrake: p.emergencyBrake,
+      slip: p.wheelslip,
+      sand: p.sandActive(),
+      horn: this.simClock - this.lastHornT < 0.7,
+      lights: lightsLabel(this.lightsMode, this.tod),
+      pantoUp: p.pantographUp,
+      electric: p.electric,
+      clock,
+      vigilance: p.deadmanOk ? `Vig ${v}s` : 'VIG FAIL',
+      blocked: p.powerBlockedReason(),
+      weather: this.weatherLabel(),
+      row: row === 'street' ? 'Street' : row === 'station' ? 'Station' : 'Reserved',
+      voltageV: ps?.voltageV ?? p.lineVoltage,
+      currentA: ps?.currentA ?? 0,
+      powerKw: ps?.powerKw ?? 0,
+      auxKw: ps?.auxKw ?? 0,
+      dumpedKw: ps?.dumpedKw ?? 0,
+      band: ps?.band ?? 'nominal',
+      nearest: ps?.nearest ?? null,
+      section: ps?.section ?? '—',
+    };
+    renderCabHud(this.hud, state);
+    if (this.hud.sideCam && this.camMode === 2) this.hud.sideCam.textContent = `Side cam ${this.sideCamMode}`;
+    else if (this.hud.sideCam) this.hud.sideCam.textContent = '';
+    if (this.hud.ionVal) {
+      this.hud.ionVal.textContent = this.photoreal.root.parent ? 'Photoreal tiles' : 'OSM / DEM';
+    }
+    void heading;
+  }
 
-    this.minimap?.draw({
-      track: this.track,
-      stations: this.stations.stations,
-      s: this.s,
-      heading,
+  private weatherLabel() {
+    if (this.hud.weather) {
+      // keep previous wording if updateHud used a more detailed label
+    }
+    const w = this.weather;
+    return w === 'rain' ? 'Rain' : w === 'snow' ? 'Snow' : 'Dry';
+  }
+
+  private updateLineVoltage(x: number, z: number) {
+    if (!this.physics.electric) {
+      this.powerSample = null;
+      return;
+    }
+    const [lon, lat] = localToLonLat(x, z);
+    const tractionW = tractionPowerFromForces({
+      electric: true,
+      pantographUp: this.physics.pantographUp,
+      speedMs: this.physics.speed,
+      teN: this.physics.lastTeN(),
+      serviceBrakeN: this.physics.lastServiceBrakeN(),
     });
+    this.powerSample = samplePower({
+      lat, lon,
+      tractionPowerW: tractionW,
+      pantographUp: this.physics.pantographUp,
+    });
+    this.physics.lineVoltage = this.powerSample.voltageV;
+  }
+
+  private installTpssProps(electric: boolean) {
+    if (this.tpssGroup) {
+      this.scene.remove(this.tpssGroup);
+      this.tpssGroup = null;
+    }
+    const root = this.hud.hudRoot ?? document.getElementById('hud');
+    if (root) {
+      root.classList.toggle('elec-hidden', !electric || !this.elecVisible);
+      root.classList.toggle('tcms-hidden', !this.tcmsVisible);
+    }
+    if (!electric) return;
+    const groundAt = (x: number, z: number) => this.terrain.ground.exactHeight(x, z);
+    const group = buildTpssProps(groundAt);
+    if (this.track) {
+      const tr = this.track;
+      nudgeTpssOffTrack(group, (x, z) => {
+        const s = tr.nearestSLocal(x, z);
+        const p = tr.sample(s);
+        return { x: p.x, z: p.z, heading: p.heading };
+      }, groundAt);
+    }
+    this.tpssGroup = group;
+    this.scene.add(group);
+  }
+
+  private syncPanelVisibility() {
+    const root = this.hud.hudRoot ?? document.getElementById('hud');
+    if (!root) return;
+    root.classList.toggle('tcms-hidden', !this.tcmsVisible);
+    root.classList.toggle('elec-hidden', !this.elecVisible || (this.physics && !this.physics.electric));
   }
 
   /** Blank the HUD while a route loads (no stale values from the previous run). */

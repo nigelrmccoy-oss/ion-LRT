@@ -45,12 +45,16 @@ const hud = {
   blockVal: document.getElementById('blockVal')!,
   ionVal: document.getElementById('ionVal')!,
   vigVal: document.getElementById('vigVal')!,
-  ...(['sand', 'lights', 'sideCam'] as const).reduce((o, k) => {
+  ...(['sand', 'lights', 'sideCam', 'atpMode', 'signalLamp', 'signalDist', 'hornLamp',
+    'elecVoltage', 'elecBand', 'elecBarFill', 'elecCurrent', 'elecPower', 'elecAux',
+    'elecDump', 'elecSection', 'elecTpss', 'elecTpssNote', 'speedo'] as const).reduce((o, k) => {
     const el = document.getElementById(k);
     if (el) o[k] = el;
     return o;
   }, {} as Record<string, HTMLElement>),
 };
+// Root of the cab displays (toggle classes live here).
+(hud as Record<string, HTMLElement>).hudRoot = hudEl;
 
 let stationsData: any = null;
 const game = new Game(canvas, hud);

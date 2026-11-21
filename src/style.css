@@ -49,3 +49,74 @@ button:hover{filter:brightness(1.08)}
 #photorealCredits.hidden{display:none}
 #photorealCredits .credit-logo{height:16px;width:auto}
 #photorealCredits .credit-sep{margin-left:14px;opacity:.8}
+
+/* v1.4.9 TCMS + traction-power panels (cab LCD language, no operator marks) */
+#hud{grid-template-columns:auto minmax(280px,1fr) minmax(240px,22rem);align-items:end}
+#hud.tcms-hidden #tcms{display:none}
+#hud.elec-hidden #elecPanel{display:none}
+.cab-panel{
+  pointer-events:none;
+  background:rgba(8,10,14,.88);
+  border:1px solid #2a3340;
+  border-radius:8px;
+  padding:.55rem .7rem .6rem;
+  color:#d5dce6;
+  font:13px/1.35 "Segoe UI",system-ui,sans-serif;
+  text-shadow:0 1px 0 #000;
+  box-shadow:0 8px 24px rgba(0,0,0,.35);
+}
+.tcms-head{display:flex;align-items:baseline;justify-content:space-between;gap:.75rem;margin-bottom:.35rem;letter-spacing:.04em}
+.tcms-title{font-size:.7rem;text-transform:uppercase;opacity:.7;font-weight:700}
+#clock{font-variant-numeric:tabular-nums;opacity:.85;font-size:.85rem}
+.tcms-speed-row{display:flex;align-items:center;gap:1rem;margin-bottom:.2rem}
+#speedo{font-size:2.6rem;font-weight:700;letter-spacing:-.03em;color:#7dffa6;line-height:1}
+#speedo small{display:block;font-size:.7rem;color:#9aa;font-weight:500;letter-spacing:.08em}
+#speedo.overspeed,#speedo.overspeed span{color:#ff6b5a}
+.tcms-limit{font-size:.95rem;opacity:.9}
+.tcms-signal{display:flex;align-items:center;gap:.45rem;font-size:.85rem}
+.signal-lamp{width:14px;height:14px;border-radius:50%;background:#333;box-shadow:inset 0 0 0 1px #111;flex:0 0 14px}
+.signal-lamp.aspect-green{background:#1fdb6a;box-shadow:0 0 8px #1fdb6a}
+.signal-lamp.aspect-amber{background:#ffbf2a;box-shadow:0 0 8px #ffbf2a}
+.signal-lamp.aspect-red{background:#ff3b30;box-shadow:0 0 8px #ff3b30}
+.atp-mode{font-size:.72rem;font-weight:700;letter-spacing:.1em;padding:.1rem .4rem;border-radius:3px;border:1px solid #445}
+.atp-mode.mode-atp{color:#7dffa6;border-color:#2a6;background:rgba(20,80,40,.4)}
+.atp-mode.mode-los{color:#cfe3ff;border-color:#469;background:rgba(20,40,80,.4)}
+.tcms-next,.tcms-notches{font-size:.9rem;margin-top:.15rem}
+.tcms-status{display:flex;flex-wrap:wrap;gap:.35rem .7rem;margin-top:.35rem;font-size:.82rem;align-items:center}
+.tcms-meta{display:flex;flex-wrap:wrap;gap:.4rem 1rem;margin-top:.3rem;font-size:.78rem;opacity:.8}
+.doors.open{color:#ffbf2a;font-weight:700}
+.panto.down{color:#ffbf2a}
+.lamp{display:inline-block;padding:.05rem .35rem;border-radius:3px;border:1px solid #444;opacity:.45;font-size:.72rem;letter-spacing:.06em}
+.lamp.on{opacity:1;background:#3a2200;border-color:#ffbf2a;color:#ffbf2a}
+#slip.lamp.on{background:#4a1010;border-color:#ff6b5a;color:#ff6b5a}
+.vig.fail{color:#ff6b5a;font-weight:700}
+.muted{opacity:.7;font-size:.78rem}
+.sr-hidden{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)}
+
+.cab-panel.elec{font-variant-numeric:tabular-nums}
+.elec-vrow{display:flex;align-items:baseline;justify-content:space-between;gap:.5rem}
+.elec-voltage{font-size:1.45rem;font-weight:700;color:#7dffa6}
+.elec-voltage.band-low{color:#ffd166}
+.elec-voltage.band-undervoltage,.elec-voltage.band-overvoltage{color:#ff6b5a}
+.elec-voltage.band-regen,.elec-voltage.band-high{color:#7ecbff}
+.elec-bar{position:relative;height:10px;margin:.45rem 0 .55rem;background:#1a1e24;border-radius:4px;overflow:hidden;border:1px solid #333}
+.elec-bar-fill{position:absolute;left:0;top:0;bottom:0;background:#7dffa6;border-radius:3px}
+.elec-bar-fill.band-low{background:#ffd166}
+.elec-bar-fill.band-undervoltage,.elec-bar-fill.band-overvoltage{background:#ff6b5a}
+.elec-bar-fill.band-regen,.elec-bar-fill.band-high{background:#7ecbff}
+.elec-tick{position:absolute;top:0;bottom:0;width:1px;background:#fff;opacity:.35;z-index:1}
+/* bar is 400–1050 V */
+.elec-tick.t500{left:15.38%}
+.elec-tick.t750{left:53.85%}
+.elec-tick.t900{left:76.92%}
+.elec-tick.t1000{left:92.31%}
+.elec-grid{display:grid;grid-template-columns:1fr 1fr;gap:.2rem .75rem;font-size:.85rem}
+.elec-grid .wide{grid-column:1/-1}
+.elec-power.motor{color:#7dffa6}
+.elec-power.regen{color:#7ecbff}
+.elec-dump{grid-column:1/-1;color:#ffbf2a;min-height:1em}
+
+@media (max-width: 900px){
+  #hud{grid-template-columns:auto 1fr; }
+  #elecPanel{grid-column:1/-1}
+}

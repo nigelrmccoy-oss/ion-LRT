@@ -740,6 +740,11 @@ export class TrainPhysics {
     return { ...this.lastResult };
   }
 
+  /** Last-step tractive effort (N). */
+  lastTeN() { return this.lastResult.te; }
+  /** Last-step service-brake demand (N), used for a regen-power estimate. */
+  lastServiceBrakeN() { return this.lastResult.demandBrake; }
+
   /**
    * One step of the uncontrolled creep state: returns [force, normalised creep]. Demand under the
    * peak → stable point on the rising branch. Demand above the peak → creep runs away along the
