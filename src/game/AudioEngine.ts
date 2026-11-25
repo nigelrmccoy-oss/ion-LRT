@@ -8,8 +8,6 @@ export class AudioEngine {
   private ctx: AudioContext | null = null;
   private slipOsc: OscillatorNode | null = null;
   private slipGain: GainNode | null = null;
-  private motorGain: GainNode | null = null;
-  private motorOsc: OscillatorNode | null = null;
   private invOsc: OscillatorNode | null = null;
   private invGain: GainNode | null = null;
   private flangeGain: GainNode | null = null;
@@ -17,6 +15,10 @@ export class AudioEngine {
   private flangeFilter: BiquadFilterNode | null = null;
   private roarGain: GainNode | null = null;
   private roarSrc: AudioBufferSourceNode | null = null;
+  private roarFilter: BiquadFilterNode | null = null;
+  private hvacGain: GainNode | null = null;
+  private hvacFilter: BiquadFilterNode | null = null;
+  private hvacSrc: AudioBufferSourceNode | null = null;
   private doorChimeGain: GainNode | null = null;
   private doorMechGain: GainNode | null = null;
   private doorMechFilter: BiquadFilterNode | null = null;
@@ -30,13 +32,6 @@ export class AudioEngine {
   ensure() {
     if (!this.ctx) {
       this.ctx = new AudioContext();
-      this.motorGain = this.ctx.createGain();
-      this.motorGain.gain.value = 0;
-      this.motorOsc = this.ctx.createOscillator();
-      this.motorOsc.type = 'sawtooth';
-      this.motorOsc.frequency.value = 60;
-      this.motorOsc.connect(this.motorGain).connect(this.ctx.destination);
-      this.motorOsc.start();
 
       // Inverter / traction whine (higher pitch, load-sensitive)
       this.invGain = this.ctx.createGain();
@@ -186,17 +181,32 @@ export class AudioEngine {
     this.flangeSrc.connect(this.flangeFilter).connect(this.flangeGain).connect(ctx.destination);
     this.flangeSrc.start();
 
-    // Wheel roar (low rumble)
+    // Wheel rumble (low rumble / thunder on CWR)
     this.roarGain = ctx.createGain();
     this.roarGain.gain.value = 0;
-    const roarLp = ctx.createBiquadFilter();
-    roarLp.type = 'lowpass';
-    roarLp.frequency.value = 280;
+    this.roarFilter = ctx.createBiquadFilter();
+    this.roarFilter.type = 'lowpass';
+    this.roarFilter.frequency.value = 120;
     this.roarSrc = ctx.createBufferSource();
     this.roarSrc.buffer = this.noiseBuffer(2.5);
     this.roarSrc.loop = true;
-    this.roarSrc.connect(roarLp).connect(this.roarGain).connect(ctx.destination);
+    this.roarSrc.playbackRate.value = 0.5;
+    this.roarSrc.connect(this.roarFilter).connect(this.roarGain).connect(ctx.destination);
     this.roarSrc.start();
+
+    // HVAC fan ambient (filtered noise)
+    this.hvacGain = ctx.createGain();
+    this.hvacGain.gain.value = 0.008;
+    this.hvacFilter = ctx.createBiquadFilter();
+    this.hvacFilter.type = 'lowpass';
+    this.hvacFilter.frequency.value = 1200;
+    this.hvacFilter.Q.value = 1.5;
+    const hvacSrc = ctx.createBufferSource();
+    hvacSrc.buffer = this.noiseBuffer(3);
+    hvacSrc.loop = true;
+    hvacSrc.connect(this.hvacFilter).connect(this.hvacGain).connect(ctx.destination);
+    hvacSrc.start();
+    this.hvacSrc = hvacSrc;
   }
 
   horn() {
@@ -213,40 +223,49 @@ export class AudioEngine {
     o.stop(ctx.currentTime + 0.75);
   }
 
-  /** Motor + inverter: whine rises with notch and speed (load proxy). */
+  /** Inverter whine rises with notch and speed (load proxy). */
   setMotor(speedMs: number, powerNotch: number) {
-    if (!this.motorOsc || !this.motorGain || !this.ctx) return;
+    if (!this.invOsc || !this.invGain || !this.ctx) return;
     const load = Math.min(1, powerNotch / 8);
     const v = Math.abs(speedMs);
-    this.motorOsc.frequency.setTargetAtTime(50 + v * 8 + powerNotch * 5, this.ctx.currentTime, 0.1);
-    this.motorGain.gain.setTargetAtTime(
-      Math.min(0.08, 0.01 + powerNotch * 0.008 + v * 0.002),
-      this.ctx.currentTime,
-      0.1,
-    );
-    if (this.invOsc && this.invGain) {
-      // Inverter whine: idle ~400 Hz, climbs with load and road speed
-      const invHz = 400 + load * 900 + v * 22;
-      this.invOsc.frequency.setTargetAtTime(invHz, this.ctx.currentTime, 0.08);
-      const invVol = load < 0.05 ? 0.004 + v * 0.0004 : 0.01 + load * 0.045 + v * 0.001;
-      this.invGain.gain.setTargetAtTime(Math.min(0.07, invVol), this.ctx.currentTime, 0.1);
+    // Inverter whine: idle ~400 Hz, climbs with load and road speed
+    const invHz = 400 + load * 900 + v * 22;
+    this.invOsc.frequency.setTargetAtTime(invHz, this.ctx.currentTime, 0.08);
+    const invVol = load < 0.05 ? 0.004 + v * 0.0004 : 0.01 + load * 0.045 + v * 0.001;
+    this.invGain.gain.setTargetAtTime(Math.min(0.07, invVol), this.ctx.currentTime, 0.1);
+
+    // HVAC fan: slightly louder when stopped (ESTIMATE)
+    if (this.hvacGain) {
+      const hvacVol = v < 0.5 ? 0.012 : 0.008;
+      this.hvacGain.gain.setTargetAtTime(hvacVol, this.ctx.currentTime, 0.15);
     }
   }
 
-  /** Flange screech + wheel roar from curvature (1/R) and speed. */
+  /** Flange squeal + wheel rumble from curvature (1/R) and speed. */
   setCurveNoise(speedMs: number, curvature: number) {
-    if (!this.ctx || !this.flangeGain || !this.roarGain) return;
+    if (!this.ctx || !this.flangeGain || !this.roarGain || !this.roarFilter) return;
     const v = Math.abs(speedMs);
     const c = Math.abs(curvature);
     const onCurve = c > 0.0015 && v > 2;
     const sharp = Math.min(1, (c - 0.0015) / 0.006);
+
+    // Flange squeal on tight curves
     const flange = onCurve ? sharp * Math.min(1, v / 12) * 0.055 : 0;
-    const roar = Math.min(0.04, v * 0.0018 + (onCurve ? sharp * 0.015 : 0));
     this.flangeGain.gain.setTargetAtTime(flange, this.ctx.currentTime, 0.12);
-    this.roarGain.gain.setTargetAtTime(roar, this.ctx.currentTime, 0.15);
     if (this.flangeFilter && onCurve) {
       this.flangeFilter.frequency.setTargetAtTime(1800 + sharp * 900, this.ctx.currentTime, 0.1);
     }
+
+    // Wheel rumble / thunder on CWR: pitch, volume and filter cutoff track speed
+    const roarVol = Math.min(0.04, v * 0.0018 + (onCurve ? sharp * 0.015 : 0));
+    const roarRate = Math.max(0.1, v * 0.04); // ESTIMATE: 0.1 at standstill, ~4.8 at 120 km/h
+    const roarCutoff = 80 + v * 1.8; // ESTIMATE: 80 Hz at standstill, ~328 Hz at 120 km/h
+
+    this.roarGain.gain.setTargetAtTime(roarVol, this.ctx.currentTime, 0.15);
+    if (this.roarSrc) {
+      this.roarSrc.playbackRate.setTargetAtTime(roarRate, this.ctx.currentTime, 0.1);
+    }
+    this.roarFilter.frequency.setTargetAtTime(roarCutoff, this.ctx.currentTime, 0.1);
   }
 
   setWheelslip(on: boolean) {
