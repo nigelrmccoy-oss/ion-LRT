@@ -16,8 +16,9 @@ export class Minimap {
     stations: StationDef[];
     s: number;
     heading: number;
+    nextStops?: { name: string; distance_m: number }[];
   }) {
-    const { track, stations, s, heading } = opts;
+    const { track, stations, s, heading, nextStops = [] } = opts;
     const w = this.canvas.width;
     const h = this.canvas.height;
     const ctx = this.ctx;
@@ -29,13 +30,21 @@ export class Minimap {
 
     const pts = track.points;
     if (!pts.length) return;
-    let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+
+    // Calculate bounds with a buffer around the train position
+    const here = track.sample(s);
+    const buffer = 200; // meters buffer around train
+    let minX = here.x - buffer, maxX = here.x + buffer;
+    let minZ = here.z - buffer, maxZ = here.z + buffer;
+
+    // Expand bounds to include all points
     for (const p of pts) {
       if (p.x < minX) minX = p.x;
       if (p.x > maxX) maxX = p.x;
       if (p.z < minZ) minZ = p.z;
       if (p.z > maxZ) maxZ = p.z;
     }
+
     const pad = 12;
     const spanX = Math.max(1, maxX - minX);
     const spanZ = Math.max(1, maxZ - minZ);
@@ -43,6 +52,7 @@ export class Minimap {
     const toSx = (x: number) => pad + (x - minX) * scale;
     const toSy = (z: number) => pad + (z - minZ) * scale;
 
+    // Draw track line
     ctx.beginPath();
     ctx.strokeStyle = '#6aa8ff';
     ctx.lineWidth = 2;
@@ -55,6 +65,7 @@ export class Minimap {
     }
     ctx.stroke();
 
+    // Draw all stations
     for (const st of stations) {
       const p = track.sample(Math.min(track.length, st.distance_m));
       ctx.fillStyle = '#f0c040';
@@ -63,7 +74,7 @@ export class Minimap {
       ctx.fill();
     }
 
-    const here = track.sample(s);
+    // Draw train position and heading marker
     const px = toSx(here.x);
     const py = toSy(here.z);
     ctx.fillStyle = '#ff5533';
@@ -73,6 +84,30 @@ export class Minimap {
     ctx.lineTo(px - Math.sin(heading) * 4 + Math.cos(heading) * 4, py - Math.cos(heading) * 4 - Math.sin(heading) * 4);
     ctx.closePath();
     ctx.fill();
+
+    // Draw next stops with labels
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '12px sans-serif';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+
+    for (let i = 0; i < Math.min(3, nextStops.length); i++) {
+      const stop = nextStops[i];
+      const p = track.sample(Math.min(track.length, stop.distance_m));
+      const sx = toSx(p.x);
+      const sy = toSy(p.z);
+      const dist = Math.round((stop.distance_m - s) / 10) / 100; // km with 2 decimals
+
+      // Draw label background
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+      const label = `${stop.name} (${dist} km)`;
+      const textWidth = ctx.measureText(label).width;
+      ctx.fillRect(sx + 6, sy - 18, textWidth + 4, 16);
+
+      // Draw label text
+      ctx.fillStyle = '#ffffff';
+      ctx.fillText(label, sx + 8, sy - 16);
+    }
   }
 }
 

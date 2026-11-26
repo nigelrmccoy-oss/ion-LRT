@@ -726,6 +726,24 @@ export class Game {
 
     this.weatherFx?.update(dt, this.camera);
     this.updateHud(limit, rowInfo, enf.aspect, p.heading);
+
+    // Update minimap if available
+    if (this.minimap && this.track && this.stations.stations.length > 0) {
+      // Get next 2-3 stops
+      const nextStops = this.stations.stations
+        .filter(st => st.distance_m > this.s + 5) // at least 5m ahead
+        .sort((a, b) => a.distance_m - b.distance_m)
+        .slice(0, 3);
+
+      this.minimap.draw({
+        track: this.track,
+        stations: this.stations.stations,
+        s: this.s,
+        heading: p.heading,
+        nextStops
+      });
+    }
+
     this.renderer.render(this.scene, this.camera);
 
     if (this.s > this.sLimits()[1] - 8 && Math.abs(this.physics.speed) < 0.5) {
