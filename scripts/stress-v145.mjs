@@ -60,12 +60,12 @@ export async function v145Tests(assert) {
       // service brake: notch 0 → 6 at 70 km/h (the signal-hold path in Game.loop)
       const sp = mk('dry'); sp.speed = 70 / 3.6;
       const sv = trace(sp, 4, 0, () => { sp.brakeNotch = 6; });
-      assert('J. service brake notch 0 → 6 at 70 km/h (signal hold): |da/dt| ≤ 1.2 m/s³ (+ resistance change), first-frame decel < 0.1 m/s²', sv.jmax <= M.JERK_SERVICE_BRAKE_MS3 * 1.05 + 0.05 && Math.abs(sv.a[0]) < 0.3, `${sv.jmax.toFixed(2)} m/s³, a0 ${sv.a[0].toFixed(3)}`);
+      assert('J. service brake notch 0 → 6 at 70 km/h (signal hold): |da/dt| ≤ service jerk (+ resistance change), first-frame decel < 0.1 m/s²', sv.jmax <= M.JERK_SERVICE_BRAKE_MS3 * 1.05 + 0.05 && Math.abs(sv.a[0]) < 0.3, `${sv.jmax.toFixed(2)} m/s³, a0 ${sv.a[0].toFixed(3)}`);
       // emergency
       const ep = mk('dry'); ep.speed = 70 / 3.6;
       const em = trace(ep, 3, 0, () => { ep.brakeNotch = 8; ep.emergencyBrake = true; });
       const aMax = Math.max(...em.a.map((x) => -x));
-      assert('J. emergency brake: ramps (≤ 5 m/s³, not 0 → 2.8 m/s² in one 20 ms frame) but faster than service and reaches ≥ 2.6 m/s² within 1 s',
+      assert('J. emergency brake: ramps (≤ emergency jerk) but faster than service and reaches ≥ 2.6 m/s² within 1 s',
         em.jmax <= M.JERK_EMERGENCY_BRAKE_MS3 * 1.05 + 0.05 && em.jmax > sv.jmax && -em.a[Math.round(1 / DT)] > 2.6 && aMax < 3.0 && -em.a[0] < 0.5,
         `${em.jmax.toFixed(2)} m/s³, a(1 s) ${(-em.a[50]).toFixed(2)}, a0 ${(-em.a[0]).toFixed(2)}`);
       // smooth stop, no snap: dry/leaf, service/emergency
