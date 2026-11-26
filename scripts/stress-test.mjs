@@ -951,6 +951,9 @@ async function main() {
     await v144Tests(assert);
     const { v145Tests } = await import('./stress-v145.mjs');
     await v145Tests(assert);
+
+    const { runSignalsSignsTests } = await import('./stress-signals-signs.mjs');
+    await runSignalsSignsTests(assert);
     const { v146Tests } = await import('./stress-v146.mjs');
     await v146Tests(assert);
     const { v147Tests } = await import('./stress-v147.mjs');
