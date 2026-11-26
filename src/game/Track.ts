@@ -639,7 +639,7 @@ export class Track {
   }
 
   private curveLimitTab: Float32Array | null = null;
-  private static readonly CURVE_TAB_STEP = 2;
+  static readonly CURVE_TAB_STEP = 2;
   /** Half-window (m) over which a curve restriction applies around s (≈ half an LRV + margin). */
   static readonly CURVE_LIMIT_HALF_WINDOW_M = 18;
   /** Half-base of the three-point radius estimate used for curve speed limits (m). */
@@ -762,5 +762,24 @@ export class Track {
     const lim = this.speedLimitKmh(s, false);
     if (lim <= SPEED_LIMITS_KMH.street) return 'street';
     return 'reserved';
+  }
+
+  /**
+   * Next posted-limit change ahead of s (built on the private postedLimitKmh table).
+   * Returns { s, kmh } of the first change at or beyond s, or null if none.
+   */
+  nextLimitChange(s: number): { s: number; kmh: number } | null {
+    const st = Track.CURVE_TAB_STEP;
+    const tab = this.postedTab;
+    if (!tab) return null;
+    const n = tab.length;
+    let i = Math.max(0, Math.min(n - 1, Math.round(s / st)));
+    // find the first change at or beyond s
+    while (i < n - 1) {
+      if (tab[i + 1] !== tab[i]) break;
+      i++;
+    }
+    if (i >= n - 1) return null;
+    return { s: (i + 1) * st, kmh: tab[i + 1] };
   }
 }
