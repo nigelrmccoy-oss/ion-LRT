@@ -740,13 +740,23 @@ export class Game {
       const dest = leadObj.getObjectByName('destSign');
       if (dest) dest.visible = this.camMode !== 0; // exterior sign would black out the cab view
       if (this.camMode === 0) {
-        // Driver's eye in cab A: ~1.6 m behind the nose, seated eye ≈ floor + 1.9 m
-        const eye = new THREE.Vector3(0.35, LRV_FLOOR_ATR_M + 1.9, lead.len / 2 - 1.6);
+        // Driver's eye in cab A: seated position behind windscreen, looking forward
+        const eye = new THREE.Vector3(-0.4, LRV_FLOOR_ATR_M + 1.65, lead.len / 2 - 0.8);
         leadObj.updateMatrixWorld();
         this.camera.position.copy(eye.applyMatrix4(leadObj.matrixWorld));
         this.tmpE.set(this.input.lookPitch, Math.PI + this.input.lookYaw, 0, 'YXZ');
         this.camQ.setFromEuler(this.tmpE);
         this.camera.quaternion.copy(leadObj.quaternion).multiply(this.camQ);
+
+        // Hide interior meshes that block the view in cab mode
+        leadObj.traverse((o) => {
+          const name = o.name;
+          if (name === 'seat-R' || name === 'seat-L' || name === 'seat-base-R' ||
+              name === 'seat-base-L' || name === 'cab-dash' || name === 'cab-bulkhead' ||
+              name === 'controller' || name === 'sun-visor') {
+            o.visible = false;
+          }
+        });
       } else if (this.camMode === 1) {
         // Chase cam: follows the lead module from behind/above
         const fx = lead.fwd.x, fz = lead.fwd.z;
