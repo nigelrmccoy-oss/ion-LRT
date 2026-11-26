@@ -1,4 +1,4 @@
-import { Game, type RouteKey } from './game/Game';
+import { Game, type RouteKey, type Scenario } from './game/Game';
 import type { Weather } from './game/Physics';
 import { bindMapCacheOptions } from './game/map/mapCacheUi';
 import { attachMapPreload, detachMapPreload } from './game/map/mapPreload';
@@ -11,6 +11,7 @@ const routeSel = document.getElementById('route') as HTMLSelectElement;
 const startSel = document.getElementById('startStation') as HTMLSelectElement;
 const weatherSel = document.getElementById('weather') as HTMLSelectElement;
 const todSel = document.getElementById('tod') as HTMLSelectElement;
+const scenarioSel = document.getElementById('scenario') as HTMLSelectElement;
 const tutorialOpt = document.getElementById('tutorialOpt') as HTMLInputElement;
 const startBtn = document.getElementById('startBtn') as HTMLButtonElement;
 const photorealOpt = document.getElementById('photorealOpt') as HTMLInputElement;
@@ -91,7 +92,7 @@ function showMenu() {
 /**
  * Debug / QA deep link: ?route=ion_southbound|ion_northbound|elmira|guelph
  *   &s=<chainage m> &cam=cab|chase|side (or 0|1|2) &dir=f|r &station=<id>
- *   &weather=dry|rain|snow &tod=day|dusk|night &tutorial=0|1
+ *   &weather=dry|rain|snow &tod=day|dusk|night &scenario=normal|haywire &tutorial=0|1
  *   &side=auto|left|right (side camera) &lights=auto|on|off
  *   &autosand=0|1 &slipctl=0|1 (automatic sanding / wheel-slip control, default 1)
  * Starts the run immediately (no menu click). Never touches the Cesium token.
@@ -112,6 +113,7 @@ function readDeepLink() {
     station: q.get('station') || undefined,
     weather: q.get('weather') || undefined,
     tod: q.get('tod') || undefined,
+    scenario: (['normal', 'haywire'] as const).find((v) => v === q.get('scenario')),
     tutorial: q.get('tutorial') === '1',
     side: (['auto', 'left', 'right'] as const).find((v) => v === q.get('side')),
     lights: (['auto', 'on', 'off'] as const).find((v) => v === q.get('lights')),
@@ -137,6 +139,7 @@ async function startRun(extra: RunExtra = {}) {
     startStationId: startSel.value,
     weather: weatherSel.value as Weather,
     tod: todSel.value as 'day' | 'dusk' | 'night',
+    scenario: scenarioSel.value as Scenario,
     runTutorial: extra.runTutorial ?? tutorialOpt.checked,
     photoreal: hasIonToken && photorealOpt.checked,
     startS: extra.startS,
@@ -179,6 +182,7 @@ initMenu()
     if (dl.station) startSel.value = dl.station;
     if (dl.weather) weatherSel.value = dl.weather;
     if (dl.tod) todSel.value = dl.tod;
+    if (dl.scenario) scenarioSel.value = dl.scenario;
     void startRun({
       startS: dl.s, cam: dl.cam, dir: dl.dir, runTutorial: dl.tutorial,
       side: dl.side, lights: dl.lights, autoSand: dl.autoSand, slipControl: dl.slipControl,
