@@ -115,8 +115,8 @@ export async function v144Tests(assert) {
         // mean deceleration between 60 and 20 km/h (excludes the final stop snap)
         return { s, t, aPeak: tA !== null && tB !== null ? (40 / 3.6) / (tB - tA) : NaN };
       };
-      assert('D. service decel 1.26 m/s² (Flexity Outlook data sheet; TCRP 13 ≈ 1.3), emergency 2.73, track brake = difference',
-        M.SERVICE_BRAKE_DECEL === 1.26 && M.EMERGENCY_BRAKE_DECEL === 2.73 && near(M.TRACK_BRAKE_DECEL, 1.47, 1e-9));
+      assert('D. service decel (Flexity Outlook data sheet; TCRP 13 ≈ 1.3), emergency, track brake = difference',
+        near(M.SERVICE_BRAKE_DECEL, 1.26, 1e-9) && near(M.EMERGENCY_BRAKE_DECEL, 2.73, 1e-9) && near(M.TRACK_BRAKE_DECEL, 1.47, 1e-9));
       const svDry = stop('dry'), emDry = stop('dry', { emergency: true });
       const vv = (70 / 3.6) ** 2;
       assert('D. dry B8 stop from 70 km/h on the flat: 145–165 m (v²/2a = 150 m minus running resistance, plus ≈ 10 m of jerk-limited brake build-up)', svDry.s > 145 && svDry.s < 165, `${svDry.s.toFixed(1)} m in ${svDry.t.toFixed(1)} s`);

@@ -41,9 +41,9 @@ export async function v146Tests(assert) {
       // Exact Code Critic numbers on v1.4.5: service −0.79330 → −0.33369 (22.98 m/s³), emergency 28.73
       const criticSvc = stopJerk(0.045, false, 0.02);
       const criticEm = stopJerk(0.045, true, 0.02);
-      assert('G. Code Critic repro (56.2 t, dry, 70→0, B8, grade +4.5 %, dt 0.02): service |da/dt| ≤ 1.2 m/s³ (v1.4.5: 22.98)',
+      assert('G. Code Critic repro (56.2 t, dry, 70→0, B8, grade +4.5 %, dt 0.02): service |da/dt| ≤ service jerk limit (v1.4.5: 22.98)',
         criticSvc.maxJ <= M.JERK_SERVICE_BRAKE_MS3 * 1.02 + 0.05, `${criticSvc.maxJ.toFixed(3)} m/s³`);
-      assert('G. Code Critic repro: emergency |da/dt| ≤ 5 m/s³ (v1.4.5: 28.73)',
+      assert('G. Code Critic repro: emergency |da/dt| ≤ emergency jerk limit (v1.4.5: 28.73)',
         criticEm.maxJ <= M.JERK_EMERGENCY_BRAKE_MS3 * 1.02 + 0.05, `${criticEm.maxJ.toFixed(3)} m/s³`);
 
       const cases = [];
