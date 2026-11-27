@@ -968,6 +968,8 @@ async function main() {
     await mapCacheTests(assert);
     const { terrainTests } = await import('./stress-terrain.mjs');
     await terrainTests(assert);
+    const { cabWindowTests } = await import('./stress-cab-window.mjs');
+    await cabWindowTests(assert);
   }
 
   const failed = results.filter((r) => !r.ok);
