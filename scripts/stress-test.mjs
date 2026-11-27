@@ -970,6 +970,8 @@ async function main() {
     await terrainTests(assert);
     const { haywireTests } = await import('./stress-haywire.mjs');
     await haywireTests(assert);
+    const { cabWindowTests } = await import('./stress-cab-window.mjs');
+    await cabWindowTests(assert);
   }
 
   const failed = results.filter((r) => !r.ok);

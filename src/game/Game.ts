@@ -8,7 +8,7 @@ import { AudioEngine } from './AudioEngine';
 import { DoorCycle } from './DoorCycle';
 import { createFlexityArticulatedAsync, createDieselConsist, type ArticulatedLRV } from './Vehicles';
 import { poseConsist, superelevationFor, buildCantProfile, type ConsistPose } from './Articulation';
-import { TRUCK_FROM_NOSE_M, LRV_LENGTH_M, LRV_FLOOR_ATR_M } from './Clearances';
+import { TRUCK_FROM_NOSE_M, LRV_LENGTH_M } from './Clearances';
 import { DIESEL_CAB_EYE, DIESEL_CONSIST_FRONT_M, DIESEL_CONSIST_REAR_M } from './Vehicles';
 import type { OsmPlatform } from './PlatformLayout';
 import { PhotorealTiles } from './PhotorealTiles';
@@ -28,6 +28,7 @@ import {
   type PowerSample,
 } from './TractionPower';
 import { renderCabHud, type CabHudState } from './CabHud';
+import { cabEyeLocal, setCabCameraMeshVisibility } from './CabCamera';
 
 export type RouteKey = 'ion_southbound' | 'ion_northbound' | 'elmira' | 'guelph';
 export type Scenario = 'normal' | 'haywire';
@@ -762,26 +763,17 @@ export class Game {
     if (this.lrv && this.pose) {
       const lead = this.pose.modules[0];
       const leadObj = this.lrv.modules[0];
-      const dest = leadObj.getObjectByName('destSign');
-      if (dest) dest.visible = this.camMode !== 0; // exterior sign would black out the cab view
+      // Cab view: hide the opaque front glass (`windscreen` / lrvGlassFront), dest
+      // sign, wipers and cab interior. Restore them for chase / side cameras.
+      setCabCameraMeshVisibility(leadObj, this.camMode === 0);
       if (this.camMode === 0) {
-        // Driver's eye in cab A: seated position behind windscreen, looking forward
-        const eye = new THREE.Vector3(-0.4, LRV_FLOOR_ATR_M + 1.65, lead.len / 2 - 0.8);
+        // Right-hand seated eye behind the windscreen opening, inboard of the wiper.
+        const eye = cabEyeLocal(lead.len);
         leadObj.updateMatrixWorld();
         this.camera.position.copy(eye.applyMatrix4(leadObj.matrixWorld));
         this.tmpE.set(this.input.lookPitch, Math.PI + this.input.lookYaw, 0, 'YXZ');
         this.camQ.setFromEuler(this.tmpE);
         this.camera.quaternion.copy(leadObj.quaternion).multiply(this.camQ);
-
-        // Hide interior meshes that block the view in cab mode
-        leadObj.traverse((o) => {
-          const name = o.name;
-          if (name === 'seat-R' || name === 'seat-L' || name === 'seat-base-R' ||
-              name === 'seat-base-L' || name === 'cab-dash' || name === 'cab-bulkhead' ||
-              name === 'controller' || name === 'sun-visor') {
-            o.visible = false;
-          }
-        });
       } else if (this.camMode === 1) {
         // Chase cam: follows the lead module from behind/above
         const fx = lead.fwd.x, fz = lead.fwd.z;
