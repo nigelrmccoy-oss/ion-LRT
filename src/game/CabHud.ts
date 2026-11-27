@@ -49,6 +49,9 @@ export type CabHudState = {
   band: VoltageBand;
   nearest: NearbyTpss | null;
   section: string;
+  /** Next speed limit change (km/h and distance ahead) */
+  nextLimitKmh?: number | null;
+  nextLimitDistM?: number | null;
 };
 
 export function formatKm(m: number | null): string {
@@ -59,6 +62,14 @@ export function formatKm(m: number | null): string {
 
 export function aspectLabel(a: CabHudState['signalAspect']): string {
   return a ? a.toUpperCase() : '—';
+}
+
+/** Format next speed limit change: "50 km/h in 320 m" */
+export function formatNextLimit(kmh: number | null | undefined, distanceM: number | null | undefined): string {
+  if (kmh == null || distanceM == null || !Number.isFinite(kmh) || !Number.isFinite(distanceM)) {
+    return '—';
+  }
+  return `${Math.round(kmh)} km/h in ${formatKm(distanceM)}`;
 }
 
 function setText(el: HTMLElement | undefined, value: string) {
@@ -88,6 +99,11 @@ export function renderCabHud(els: CabHudEls, s: CabHudState) {
     const wrap = els.speedo ?? els.speedVal.parentElement;
     wrap?.classList.toggle('overspeed', s.overspeed);
   }
+
+  // Next limit display
+  const nextLimitText = formatNextLimit(s.nextLimitKmh, s.nextLimitDistM);
+  setText(els.nextLimit, nextLimitText);
+  setText(els.tcmsNextLimit, nextLimitText);
 
   setText(els.atpMode, s.atpMode);
   setClass(els.atpMode, 'atp-mode mode-' + s.atpMode.toLowerCase());
