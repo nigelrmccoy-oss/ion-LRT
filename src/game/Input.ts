@@ -8,6 +8,38 @@
  */
 export const GAMEPAD_DEADZONE = 0.15;
 
+/**
+ * Keyboard codes the game binds, plus Firefox quick-find (`/` and `'`) which
+ * otherwise steal keystrokes while a run is in focus.
+ */
+export const GAME_KEY_CODES = new Set([
+  'KeyR', 'KeyT', 'KeyW', 'KeyS', 'KeyP', 'KeyC', 'KeyH', 'KeyV', 'KeyE', 'KeyU',
+  'ArrowUp', 'ArrowDown', 'Enter', 'Space', 'Escape',
+  'ShiftLeft', 'ShiftRight',
+  'Slash', 'Quote',
+]);
+
+const ALWAYS_CAPTURE_CODES = new Set(['Space', 'ArrowUp', 'ArrowDown']);
+const BROWSER_FUNCTION_CODES = new Set(['F5', 'F11', 'F12']);
+
+type KeyLike = {
+  code: string;
+  ctrlKey?: boolean;
+  metaKey?: boolean;
+  target?: EventTarget | null;
+};
+
+/** True when this keydown should be preventDefault'd (game bind or Firefox find). */
+export function shouldPreventGameKey(e: KeyLike, capturing: boolean): boolean {
+  if (e.ctrlKey || e.metaKey) return false;
+  if (BROWSER_FUNCTION_CODES.has(e.code)) return false;
+  const el = e.target as { tagName?: string; isContentEditable?: boolean } | null | undefined;
+  const tag = el?.tagName;
+  if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA' || el?.isContentEditable) return false;
+  if (ALWAYS_CAPTURE_CODES.has(e.code)) return true;
+  return capturing && GAME_KEY_CODES.has(e.code);
+}
+
 /** Standard-mapping button indices (https://w3c.github.io/gamepad/#remapping). */
 export const GP = {
   A: 0, B: 1, X: 2, Y: 3,
@@ -55,6 +87,8 @@ export class Input {
   private prevButtons: boolean[] = [];
   /** Test double: when set, pollGamepads reads this instead of navigator.getGamepads(). */
   private testPads: (PadLike | null)[] | null = null;
+  /** When true (a run is active), bound keys plus / and ' are preventDefault'd. */
+  capturing = false;
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -63,7 +97,7 @@ export class Input {
       // auto-repeat is ignored; every real press is queued (capped so a stalled tab can't grow it)
       if (!e.repeat && this.edgeQueue.length < 64) this.edgeQueue.push(e.code);
       this.keys.add(e.code);
-      if (['Space', 'ArrowUp', 'ArrowDown'].includes(e.code)) e.preventDefault();
+      if (shouldPreventGameKey(e, this.capturing)) e.preventDefault();
     });
     document.addEventListener('keyup', (e) => this.keys.delete(e.code));
 

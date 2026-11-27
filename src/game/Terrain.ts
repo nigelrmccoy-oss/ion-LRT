@@ -3,6 +3,8 @@ import type { Elevation } from './elevation';
 import type { Track } from './Track';
 import type { RowClassifier } from './Row';
 import type { SignalDef, CrossingDef, SignalAspect } from './Signals';
+import { createBarSignal, updateBarSignal, barAspectFor } from './BarSignals';
+import { buildWaysideSigns } from './WaysideSigns';
 import type { CesiumIonImagery } from './CesiumIon';
 import { GroundModel, GRID_M, SLOPE_REACH_M, ROAD_SINK_M, type CorridorTrack } from './Ground';
 import {
@@ -65,6 +67,8 @@ export class TerrainSystem {
   private signalDefs: SignalDef[] = [];
   private crossingDefs: CrossingDef[] = [];
   private signalMeshes = new Map<number, { group: THREE.Group; lamps: THREE.Mesh[] }>();
+  private barSignalMeshes = new Map<number, THREE.Group>();
+  private waysideGroup: THREE.Group | null = null;
   private crossingMeshes = new Map<number, { group: THREE.Group; gate: THREE.Object3D; lamp: THREE.Mesh }>();
   private worldExtras = new THREE.Group(); // rails + signals + crossings (non-chunked / managed)
   private treeGeo = new THREE.ConeGeometry(2.2, 7, 5);
@@ -460,6 +464,10 @@ export class TerrainSystem {
       this.worldExtras.remove(m.group);
     }
     this.signalMeshes.clear();
+    for (const [, b] of this.barSignalMeshes) {
+      this.worldExtras.remove(b);
+    }
+    this.barSignalMeshes.clear();
     const lines = tracks ?? [];
     const placed: SignalDef[] = [];
     for (const sig of this.signalDefs) {
@@ -490,7 +498,7 @@ export class TerrainSystem {
           if (d < nd) { nd = d; near = t; ns = s; }
         }
         const p = near.sample(ns);
-        heading = p.heading + Math.PI / 2;
+        heading = p.heading; // face the road/train axis, not 90° off
         if (clearance(sx, sz) < 0) {
           const lx = Math.cos(p.heading), lz = -Math.sin(p.heading);
           const lat = (sx - p.x) * lx + (sz - p.z) * lz;
@@ -525,7 +533,50 @@ export class TerrainSystem {
       g.rotation.y = heading;
       this.worldExtras.add(g);
       this.signalMeshes.set(sig.id, { group: g, lamps });
+
+      // ION white-bar head, slightly along-track from the road signal so both read clearly.
+      const hx = Math.sin(heading), hz = Math.cos(heading);
+      const bar = createBarSignal('horizontal');
+      bar.position.set(sx + hx * 1.0, y, sz + hz * 1.0);
+      bar.rotation.y = heading;
+      this.worldExtras.add(bar);
+      this.barSignalMeshes.set(sig.id, bar);
     }
+
+    // Reserved-ROW ION signals that were skipped as road heads still get a white-bar signal.
+    for (const sig of this.signalDefs) {
+      if (this.barSignalMeshes.has(sig.id)) continue;
+      if (!lines.length) continue;
+      let near = lines[0], nd = Infinity, ns = 0;
+      for (const t of lines) {
+        const s = t.nearestSLocal(sig.x, sig.z);
+        const q = t.sampleRaw(s);
+        const d = Math.hypot(q.x - sig.x, q.z - sig.z);
+        if (d < nd) { nd = d; near = t; ns = s; }
+      }
+      if (nd > 22) continue;
+      const p = near.sample(ns);
+      const heading = p.heading;
+      const y = this.ground.exactHeight(sig.x, sig.z);
+      const bar = createBarSignal('horizontal');
+      bar.position.set(sig.x, y, sig.z);
+      bar.rotation.y = heading;
+      this.worldExtras.add(bar);
+      this.barSignalMeshes.set(sig.id, bar);
+    }
+  }
+
+  /** Wayside speed-limit boards for the driven line. */
+  buildWaysideSigns(track: Track) {
+    if (this.waysideGroup) {
+      this.worldExtras.remove(this.waysideGroup);
+      this.waysideGroup = null;
+    }
+    const g = new THREE.Group();
+    g.name = 'wayside-signs';
+    buildWaysideSigns(track, g);
+    this.worldExtras.add(g);
+    this.waysideGroup = g;
   }
 
   /** Heavy-rail crossing gates / flashers. */
@@ -586,6 +637,10 @@ export class TerrainSystem {
       mesh.lamps.forEach((lamp, i) => {
         lamp.material = i === on ? mats[i] : this.offMat;
       });
+    }
+    for (const [id, bar] of this.barSignalMeshes) {
+      const asp = getAspect(id);
+      if (asp) updateBarSignal(bar, barAspectFor(asp));
     }
   }
 

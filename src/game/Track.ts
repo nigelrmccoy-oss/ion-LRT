@@ -764,6 +764,19 @@ export class Track {
     return 'reserved';
   }
 
+  /** Every posted-limit change along the line (builds the table if needed). */
+  postedChanges(): { s: number; kmh: number }[] {
+    this.postedLimitKmh(0);
+    const tab = this.postedTab;
+    if (!tab) return [];
+    const st = Track.CURVE_TAB_STEP;
+    const out: { s: number; kmh: number }[] = [];
+    for (let i = 0; i < tab.length - 1; i++) {
+      if (tab[i + 1] !== tab[i]) out.push({ s: (i + 1) * st, kmh: tab[i + 1] });
+    }
+    return out;
+  }
+
   /**
    * Next posted-limit change ahead of s (built on the private postedLimitKmh table).
    * Returns { s, kmh } of the first change at or beyond s, or null if none.

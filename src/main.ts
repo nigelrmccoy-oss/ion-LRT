@@ -48,7 +48,7 @@ const hud = {
   blockVal: document.getElementById('blockVal')!,
   ionVal: document.getElementById('ionVal')!,
   vigVal: document.getElementById('vigVal')!,
-  ...(['sand', 'lights', 'sideCam', 'atpMode', 'signalLamp', 'signalDist', 'hornLamp',
+  ...(['sand', 'lights', 'sideCam', 'atpMode', 'signalLamp', 'signalDist', 'hornLamp', 'nextLimit', 'tcmsNextLimit',
     'elecVoltage', 'elecBand', 'elecBarFill', 'elecCurrent', 'elecPower', 'elecAux',
     'elecDump', 'elecSection', 'elecTpss', 'elecTpssNote', 'speedo'] as const).reduce((o, k) => {
     const el = document.getElementById(k);
@@ -61,6 +61,9 @@ const hud = {
 
 let stationsData: any = null;
 const game = new Game(canvas, hud);
+if (new URLSearchParams(location.search).get('cabprobe') === '1') {
+  (window as unknown as { __ionGame: typeof game }).__ionGame = game;
+}
 bindMapCacheOptions(document);
 
 async function initMenu() {

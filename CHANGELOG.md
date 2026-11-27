@@ -1,5 +1,23 @@
 # Changelog
 
+## v1.5.0 — 2026-11-27
+
+- **Cab view**: hide the opaque Flexity `windscreen` (`windscreen-glass` / `lrvGlassFront`, alpha 1)
+  and cab-interior meshes in camMode 0, and place the seated right-hand eye at
+  (0.28 m, floor + 1.62 m, 0.85 m behind the nose). The v1.4.9 eye sat behind that black glass.
+- **Key capture**: while a run is active (and focus is not in an input/select/textarea), bound
+  keys plus `/` and `'` call `preventDefault`, so Firefox find-as-you-type / quick-find cannot
+  steal them. Ctrl/Meta, F5, F11 and F12 are left alone.
+- **Braking** (ESTIMATE): service 1.3 m/s², emergency 2.8 m/s², emergency jerk 6 m/s³;
+  regen fades out between 8 km/h and 2 km/h.
+- **Haywire** scenario: no route speed-limit or vMax ATP penalty; HUD limit and next-limit show "—".
+  Deep link `&scenario=haywire`. The 1.1× vMax backstop remains.
+- **Road signals**: traffic-signal yaw follows the road/train axis (was 90° off). ION white-bar
+  signals are placed on reserved ROW (vertical = proceed, horizontal = stop). Wayside speed boards
+  are built at posted-limit changes, with advance boards on reductions. Next-limit HUD is wired.
+- Wheel rumble follows speed; HVAC ambient; inverter is a sine (sawtooth only on the horn).
+- Minimap shows the route, layout and upcoming stops.
+
 ## v1.4.9 — 2026-11-21
 
 - **Driver TCMS + traction-power panel**: cab HUD with speed/limit, ATP/LOS mode, signal and distance,

@@ -73,15 +73,29 @@ export const VIGILANCE_MIN_SPEED_MS = 0.5;
  * brochure lists only "regenerative + hydraulic disc + magnetic track brake"). Corroborated by
  * TCRP Report 13 / typical LRV service braking ≈ 3.0 mphps = 1.3 m/s². v1.4.3 used an unsourced 1.15.
  */
-export const SERVICE_BRAKE_DECEL = 1.26;
+export const SERVICE_BRAKE_DECEL = 1.3; // ESTIMATE (TCRP 13 typical LRV ≈ 1.3; Outlook sheet 1.26)
 /**
  * Emergency braking total, m/s²: friction brake at full service plus the magnetic track brake.
  * SOURCE: same Flexity Outlook data sheet, emergency braking 2.73 m/s² (sibling platform; the
  * Freedom figure is not published). DART design criteria quote 4–6 mphps (1.8–2.7 m/s²) for LRVs.
  */
-export const EMERGENCY_BRAKE_DECEL = 2.73;
-/** Magnetic track-brake share of the emergency rate (not adhesion-limited): 2.73 − 1.26. */
+export const EMERGENCY_BRAKE_DECEL = 2.8; // ESTIMATE (typical LRV emergency ≈ 2.8; Outlook sheet 2.73)
+/** Magnetic track-brake share of the emergency rate (not adhesion-limited): 2.8 − 1.3. */
 export const TRACK_BRAKE_DECEL = EMERGENCY_BRAKE_DECEL - SERVICE_BRAKE_DECEL;
+
+/** Speed (m/s) where electrical regen begins to fade out. ESTIMATE (typical LRV blend). */
+export const REGEN_FADE_START_MS = 8 / 3.6;
+/** Speed (m/s) where regen has fully faded and friction carries the brake. ESTIMATE. */
+export const REGEN_FADE_END_MS = 2 / 3.6;
+
+/** 1 = full regen available, 0 = friction only. ESTIMATE blend, not a sourced ION curve. */
+export function regenBlendFrac(speedMs: number): number {
+  const v = Math.abs(speedMs);
+  if (v <= REGEN_FADE_END_MS) return 0;
+  if (v >= REGEN_FADE_START_MS) return 1;
+  return (v - REGEN_FADE_END_MS) / (REGEN_FADE_START_MS - REGEN_FADE_END_MS);
+}
+
 /** Track brake needs motion to drag the magnets (m/s). ESTIMATE. */
 export const TRACK_BRAKE_MIN_SPEED_MS = 0.5;
 /**
@@ -114,7 +128,7 @@ export const TRACK_BRAKE_CONDITION_FACTOR: Record<RailCondition, number> = { dry
  */
 export const JERK_TRACTION_MS3 = 1.34;
 export const JERK_SERVICE_BRAKE_MS3 = 1.2;
-export const JERK_EMERGENCY_BRAKE_MS3 = 5;
+export const JERK_EMERGENCY_BRAKE_MS3 = 6; // 2.8 m/s² in ≈ 0.47 s (under 0.5 s)
 /** Largest dt (s) a single step integrates; bigger gaps (tab switch, debugger) are clamped, not extrapolated. */
 export const MAX_STEP_DT_S = 0.25;
 /**
@@ -521,7 +535,7 @@ export class TrainPhysics {
     return this.overspeedPenalty;
   }
 
-  private lastResult = { te: 0, a: 0, resist: 0, Fbrake: 0, demandTE: 0, demandBrake: 0, maxAdhesion: 0, creepTraction: 0, creepBrake: 0 };
+  private lastResult = { te: 0, a: 0, resist: 0, Fbrake: 0, demandTE: 0, demandBrake: 0, regenBrake: 0, maxAdhesion: 0, creepTraction: 0, creepBrake: 0 };
 
   /** Replace any non-finite or out-of-range state/input with a safe value so one bad frame cannot poison later ones. */
   private sanitize() {
@@ -599,11 +613,13 @@ export class TrainPhysics {
     const axleLoad = this.massKg * 9.81 * this.axleFrac * cosT;
     const peakT = this.adhesionAt(this.speed) * axleLoad;
 
-    // Brakes: blended regen + friction at SERVICE_BRAKE_DECEL (B8), limited by adhesion
+    // Brakes: total demand is SERVICE_BRAKE_DECEL (B8). Electrical regen fades at low
+    // speed (regenBlendFrac) and friction takes over so the stop does not sag. ESTIMATE.
     // (brake adhesion uses all axles: friction brakes on the trailer truck too, normal force
     // m·g·cos θ like traction); the emergency brake adds the magnetic track brake, which does
     // not depend on wheel–rail adhesion (but does on rail contamination: TRACK_BRAKE_CONDITION_FACTOR).
     const demandBrake = this.cmdFrictionA * mEff;
+    const regenBrake = this.electric ? demandBrake * regenBlendFrac(this.speed) : 0;
     const peakB = this.adhesionAt(this.speed) * this.massKg * 9.81 * cosT;
 
     const teSlip = notchP > 0 && demandTE > peakT;
@@ -738,14 +754,16 @@ export class TrainPhysics {
       this.emergencyBrake = true; // vigilance penalty = emergency brake application
     }
 
-    this.lastResult = { te, a, resist, Fbrake, demandTE, demandBrake, maxAdhesion: peakT, creepTraction: this.creepTraction(), creepBrake: this.creepBrake() };
+    this.lastResult = { te, a, resist, Fbrake, demandTE, demandBrake, regenBrake, maxAdhesion: peakT, creepTraction: this.creepTraction(), creepBrake: this.creepBrake() };
     return { ...this.lastResult };
   }
 
   /** Last-step tractive effort (N). */
   lastTeN() { return this.lastResult.te; }
-  /** Last-step service-brake demand (N), used for a regen-power estimate. */
+  /** Last-step service-brake demand (N), total mechanical (regen + friction). */
   lastServiceBrakeN() { return this.lastResult.demandBrake; }
+  /** Electrical regen share of the service brake (N). ESTIMATE blend; 0 at low speed. */
+  lastRegenBrakeN() { return this.lastResult.regenBrake; }
 
   /**
    * One step of the uncontrolled creep state: returns [force, normalised creep]. Demand under the

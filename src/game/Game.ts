@@ -174,6 +174,7 @@ export class Game {
     this.weather = opts.weather;
     this.finished = false;
     this.running = true;
+    this.input.capturing = true;
     if (this.terrain) this.scene.remove(this.terrain.group);
     this.scene.remove(this.stations.group);
     if (this.train) this.scene.remove(this.train);
@@ -311,6 +312,7 @@ export class Game {
     this.lights.update(lightsOn(this.lightsMode, this.tod), this.simClock);
 
     this.terrain.buildTrafficSignals([ionSb, ionNb]);
+    this.terrain.buildWaysideSigns(this.track);
     // enforce traffic signals along the line actually driven (not the reference chainage)
     // (heads nearer the other ION line belong to its street — see signalAppliesToLine)
     this.signals.setLine(this.activeLineKey === 'ion' ? this.track : null, SIGNAL_MAX_LATERAL_M,
@@ -846,6 +848,9 @@ export class Game {
       (row === 'street' || (row === 'station' && this.row.isStreetBand(refSNow)));
     const haywire = this.scenario === 'haywire';
     const atpMode = haywire || !p.electric || this.activeLineKey !== 'ion' ? '—' : (inStreet ? 'LOS' : 'ATP');
+    const nxt = haywire ? null : this.track.nextLimitChange(this.s);
+    const nextLimitKmh = nxt && nxt.s > this.s ? nxt.kmh : null;
+    const nextLimitDistM = nxt && nxt.s > this.s ? nxt.s - this.s : null;
     const ps = this.powerSample;
     const h = Math.floor(this.simClock / 3600) % 24;
     const m = Math.floor((this.simClock % 3600) / 60);
@@ -857,6 +862,8 @@ export class Game {
       limitKmh: haywire ? Infinity : limit,
       overspeed: haywire ? false : (p.overspeedPenalty || p.speedKmh() > limit + 2),
       atpMode,
+      nextLimitKmh: haywire ? null : nextLimitKmh,
+      nextLimitDistM: haywire ? null : nextLimitDistM,
       signalAspect: aspect,
       signalDistM: signalDist,
       nextStation: next ? next.name : '—',
@@ -918,7 +925,7 @@ export class Game {
       pantographUp: this.physics.pantographUp,
       speedMs: this.physics.speed,
       teN: this.physics.lastTeN(),
-      serviceBrakeN: this.physics.lastServiceBrakeN(),
+      serviceBrakeN: this.physics.lastRegenBrakeN(),
     });
     this.powerSample = samplePower({
       lat, lon,
@@ -975,8 +982,88 @@ export class Game {
     }
   }
 
+  /**
+   * Headless cab-view diagnosis: eye, lead length, and meshes along the look
+   * direction. Used by the box screenshot script (`?cabprobe=1`).
+   */
+  cabProbe(): {
+    camMode: number;
+    leadLen: number | null;
+    eyeLocal: { x: number; y: number; z: number } | null;
+    camWorld: { x: number; y: number; z: number };
+    fwd: { x: number; y: number; z: number };
+    hits: { name: string; parent: string; dist: number; visible: boolean }[];
+    nearby: { name: string; parent: string; dist: number; visible: boolean }[];
+    leadOriginWorld: { x: number; y: number; z: number } | null;
+    leadPlusZWorld: { x: number; y: number; z: number } | null;
+  } {
+    const cam = this.camera;
+    const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(cam.quaternion);
+    const lead = this.pose?.modules[0];
+    const leadObj = this.lrv?.modules[0];
+    const eyeLocal = lead ? cabEyeLocal(lead.len) : null;
+    const ray = new THREE.Raycaster(cam.position.clone(), fwd.clone().normalize(), 0, 8);
+    ray.camera = cam;
+    const hits: THREE.Intersection[] = [];
+    if (leadObj) {
+      leadObj.traverse((o) => {
+        const mesh = o as THREE.Mesh;
+        if (!mesh.isMesh) return;
+        const part = ray.intersectObject(mesh, false);
+        if (part.length) hits.push(...part);
+      });
+      hits.sort((a, b) => a.distance - b.distance);
+    }
+    const nearby: { name: string; parent: string; dist: number; visible: boolean }[] = [];
+    if (leadObj) {
+      leadObj.updateMatrixWorld();
+      leadObj.traverse((o) => {
+        const mesh = o as THREE.Mesh;
+        if (!mesh.isMesh) return;
+        const wp = new THREE.Vector3();
+        mesh.getWorldPosition(wp);
+        const d = wp.distanceTo(cam.position);
+        if (d < 2.5) {
+          nearby.push({
+            name: mesh.name || '(unnamed)',
+            parent: mesh.parent?.name || '',
+            dist: Math.round(d * 1000) / 1000,
+            visible: mesh.visible,
+          });
+        }
+      });
+      nearby.sort((a, b) => a.dist - b.dist);
+    }
+    let leadOriginWorld: { x: number; y: number; z: number } | null = null;
+    let leadPlusZWorld: { x: number; y: number; z: number } | null = null;
+    if (leadObj) {
+      leadObj.updateMatrixWorld();
+      const o = new THREE.Vector3(0, 0, 0).applyMatrix4(leadObj.matrixWorld);
+      const z = new THREE.Vector3(0, 0, 1).applyMatrix4(leadObj.matrixWorld);
+      leadOriginWorld = { x: o.x, y: o.y, z: o.z };
+      leadPlusZWorld = { x: z.x, y: z.y, z: z.z };
+    }
+    return {
+      camMode: this.camMode,
+      leadLen: lead?.len ?? null,
+      eyeLocal: eyeLocal ? { x: eyeLocal.x, y: eyeLocal.y, z: eyeLocal.z } : null,
+      camWorld: { x: cam.position.x, y: cam.position.y, z: cam.position.z },
+      fwd: { x: fwd.x, y: fwd.y, z: fwd.z },
+      hits: hits.slice(0, 16).map((h) => ({
+        name: h.object.name || '(unnamed)',
+        parent: h.object.parent?.name || '',
+        dist: Math.round(h.distance * 1000) / 1000,
+        visible: h.object.visible,
+      })),
+      nearby,
+      leadOriginWorld,
+      leadPlusZWorld,
+    };
+  }
+
   stop() {
     this.running = false;
+    this.input.capturing = false;
     this.photoreal.showAttribution(false);
     this.tutorial.skip();
     if (this.windshield) this.windshield.className = '';
@@ -984,6 +1071,7 @@ export class Game {
 
   private finish() {
     this.running = false;
+    this.input.capturing = false;
     this.finished = true;
     this.audio.setWheelslip(false);
     const elapsed = (performance.now() - this.stats.started) / 1000;
