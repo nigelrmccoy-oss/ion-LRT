@@ -54,6 +54,12 @@ export type CabHudState = {
   nextLimitDistM?: number | null;
 };
 
+/** Posted limit for the HUD / TCMS. Non-finite (Haywire) shows as off. */
+export function formatSpeedLimit(limitKmh: number): string {
+  if (!Number.isFinite(limitKmh)) return '—';
+  return String(Math.round(limitKmh));
+}
+
 export function formatKm(m: number | null): string {
   if (m == null || !Number.isFinite(m)) return '—';
   if (m < 1000) return `${Math.round(m)} m`;
@@ -93,8 +99,9 @@ export function voltageBarFrac(volts: number): number {
 
 export function renderCabHud(els: CabHudEls, s: CabHudState) {
   setText(els.speedVal, String(Math.round(s.speedKmh)));
-  setText(els.limitVal, String(Math.round(s.limitKmh)));
-  setText(els.tcmsLimit, String(Math.round(s.limitKmh)));
+  const limitTxt = formatSpeedLimit(s.limitKmh);
+  setText(els.limitVal, limitTxt);
+  setText(els.tcmsLimit, limitTxt);
   if (els.speedVal) {
     const wrap = els.speedo ?? els.speedVal.parentElement;
     wrap?.classList.toggle('overspeed', s.overspeed);

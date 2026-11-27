@@ -968,6 +968,8 @@ async function main() {
     await mapCacheTests(assert);
     const { terrainTests } = await import('./stress-terrain.mjs');
     await terrainTests(assert);
+    const { haywireTests } = await import('./stress-haywire.mjs');
+    await haywireTests(assert);
   }
 
   const failed = results.filter((r) => !r.ok);

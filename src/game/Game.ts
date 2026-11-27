@@ -30,6 +30,7 @@ import {
 import { renderCabHud, type CabHudState } from './CabHud';
 
 export type RouteKey = 'ion_southbound' | 'ion_northbound' | 'elmira' | 'guelph';
+export type Scenario = 'normal' | 'haywire';
 
 type StationsFile = {
   routes: Record<string, {
@@ -72,6 +73,7 @@ export class Game {
   simClock = 8 * 3600;
   weather: Weather = 'dry';
   routeKey: RouteKey = 'ion_southbound';
+  scenario: Scenario = 'normal';
   stats = { overspeed: 0, wheelslip: 0, stopAcc: [] as number[], started: 0, redLights: 0 };
   dwellUntil = 0;
   finished = false;
@@ -145,6 +147,8 @@ export class Game {
     startStationId: string;
     weather: Weather;
     tod: 'day' | 'dusk' | 'night';
+    /** Normal (default) keeps ATP / posted limits. Haywire disables route and vMax penalty enforcement. */
+    scenario?: Scenario;
     onEnd: (html: string) => void;
     runTutorial?: boolean;
     /** Try Google Photorealistic 3D Tiles via Cesium ion (needs token; falls back to OSM). */
@@ -165,6 +169,7 @@ export class Game {
   }) {
     this.onEnd = opts.onEnd;
     this.routeKey = opts.route;
+    this.scenario = opts.scenario ?? 'normal';
     this.weather = opts.weather;
     this.finished = false;
     this.running = true;
@@ -654,7 +659,9 @@ export class Game {
     }
 
     // ATP-style supervision: penalty brake + traction cut-out above limit + 5 km/h (Physics.enforceSpeedLimit)
-    this.physics.enforceSpeedLimit(limit);
+    // Haywire: no route-limit or 80 km/h vMax penalty. The 1.1× VMAX_BACKSTOP_FACTOR in Physics.step stays as a last-resort runaway cap.
+    if (this.scenario === 'haywire') this.physics.overspeedPenalty = false;
+    else this.physics.enforceSpeedLimit(limit);
     this.updateLineVoltage(sample.x, sample.z);
     this.physics.step(dt, sample.grade, sample.curvature);
     const ds = this.physics.speed * dt;
@@ -667,7 +674,7 @@ export class Game {
     if (!Number.isFinite(this.physics.speed)) this.physics.speed = 0;
     if (!Number.isFinite(this.s)) this.s = 0;
 
-    if (this.physics.speedKmh() > limit + 2) this.stats.overspeed += dt;
+    if (this.scenario !== 'haywire' && this.physics.speedKmh() > limit + 2) this.stats.overspeed += dt;
     if (this.physics.wheelslip) this.stats.wheelslip += dt;
     this.syncDoorCycle(dt);
     this.audio.setWheelslip(this.physics.wheelslip);
@@ -845,7 +852,8 @@ export class Game {
     const inStreet =
       this.activeLineKey === 'ion' &&
       (row === 'street' || (row === 'station' && this.row.isStreetBand(refSNow)));
-    const atpMode = !p.electric || this.activeLineKey !== 'ion' ? '—' : (inStreet ? 'LOS' : 'ATP');
+    const haywire = this.scenario === 'haywire';
+    const atpMode = haywire || !p.electric || this.activeLineKey !== 'ion' ? '—' : (inStreet ? 'LOS' : 'ATP');
     const ps = this.powerSample;
     const h = Math.floor(this.simClock / 3600) % 24;
     const m = Math.floor((this.simClock % 3600) / 60);
@@ -854,8 +862,8 @@ export class Game {
     const v = Math.max(0, Math.ceil(p.vigilanceTimer));
     const state: CabHudState = {
       speedKmh: p.speedKmh(),
-      limitKmh: limit,
-      overspeed: p.overspeedPenalty || p.speedKmh() > limit + 2,
+      limitKmh: haywire ? Infinity : limit,
+      overspeed: haywire ? false : (p.overspeedPenalty || p.speedKmh() > limit + 2),
       atpMode,
       signalAspect: aspect,
       signalDistM: signalDist,
