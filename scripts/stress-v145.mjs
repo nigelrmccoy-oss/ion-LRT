@@ -154,9 +154,9 @@ export async function v145Tests(assert) {
       const dryE = stop('dry', { emergency: true }), leafE = stop('leaf', { emergency: true }), rainE = stop('rain', { emergency: true }), leafS = stop('leaf');
       assert('T. leaf emergency stop from 70 km/h is longer than dry (v1.4.4: 86.8 m vs 68.1 m, factor not applied to the track brake itself)', leafE.s > dryE.s + 20, `dry ${dryE.s.toFixed(1)} / rain ${rainE.s.toFixed(1)} / leaf ${leafE.s.toFixed(1)} m`);
       assert('T. rain sits between dry and leaf, and the track brake still beats leaf service braking', dryE.s < rainE.s && rainE.s < leafE.s && leafE.s < leafS.s, `leaf service ${leafS.s.toFixed(1)} m`);
-      // steady track-brake decel on leaf = factor × 1.47 on top of the friction brake
+      // steady track-brake decel on leaf = factor × TRACK_BRAKE_DECEL (now 1.5 = 2.8 − 1.3) on top of the friction brake
       const p = mk('leaf'); p.speed = 15; p.brakeNotch = 8; p.emergencyBrake = true; for (let i = 0; i < 150; i++) p.step(DT, 0, 0);
-      assert('T. the track-brake command settles at factor × 1.47 m/s² on leaf', near(p.cmdTrackA, 1.47 * F.leaf, 0.01) || p.speed < 1, `${p.cmdTrackA.toFixed(3)}`);
+      assert('T. the track-brake command settles at factor × TRACK_BRAKE_DECEL m/s² on leaf', near(p.cmdTrackA, M.TRACK_BRAKE_DECEL * F.leaf, 0.01) || p.speed < 1, `${p.cmdTrackA.toFixed(3)}`);
     }
 
     // ---- O. P2-7 overspeed ----------------------------------------------------------------------------------
